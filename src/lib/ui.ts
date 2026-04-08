@@ -10,8 +10,12 @@ export const ui = {
 
   card: {
     base: 'rounded-2xl border border-neutral-200 bg-white p-5 md:p-6 shadow-sm',
+    compact:
+      'rounded-2xl border border-neutral-200 bg-white p-4 md:p-5 shadow-sm',
     primary:
       'rounded-2xl border border-sky-200 bg-sky-50 p-5 md:p-6 shadow-sm',
+    primaryCompact:
+      'rounded-2xl border border-sky-200 bg-sky-50 p-4 md:p-5 shadow-sm',
     success:
       'rounded-2xl border border-green-200 bg-green-50 p-4 shadow-sm',
     warning:
@@ -32,6 +36,7 @@ export const ui = {
     body: 'text-sm text-neutral-700',
     muted: 'text-sm text-neutral-600',
     subtle: 'text-xs text-neutral-500',
+    helper: 'text-xs text-neutral-600',
     strong: 'font-medium text-neutral-900',
   },
 
@@ -44,6 +49,8 @@ export const ui = {
       'inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60',
     neutral:
       'inline-flex items-center justify-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-900 transition hover:bg-neutral-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60',
+    icon:
+      'inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900 active:scale-[0.99]',
   },
 
   badge: {

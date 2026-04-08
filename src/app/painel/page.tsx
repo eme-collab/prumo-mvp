@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import AudioCaptureCard from '@/components/audio-capture-card'
+import DashboardCollapsibleCard from '@/components/dashboard-collapsible-card'
 import InstallAppCard from '@/components/install-app-card'
 import {
   compareOpenAccountsByUrgency,
@@ -13,81 +14,24 @@ import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
 import { signOut } from './actions'
 
-function MicrophoneIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" />
-      <path d="M19 11a7 7 0 0 1-14 0" />
-      <path d="M12 18v3" />
-      <path d="M8 21h8" />
-    </svg>
-  )
-}
-
-function PendingIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="8" />
-      <path d="M12 8v4l2.5 2.5" />
-    </svg>
-  )
-}
-
-function OpenAccountsIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="6" width="18" height="12" rx="2" />
-      <path d="M3 10h18" />
-      <path d="M8 14h3" />
-    </svg>
-  )
-}
-
 function getPendingCardClass(
   readyCount: number,
   failedCount: number,
   processingCount: number
 ) {
   if (failedCount > 0) {
-    return 'rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-sm md:p-6'
+    return 'rounded-2xl border border-red-200 bg-red-50/40 p-4 shadow-sm md:p-5'
   }
 
   if (readyCount > 0) {
-    return 'rounded-2xl border border-sky-200 bg-sky-50/40 p-5 shadow-sm md:p-6'
+    return 'rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm md:p-5'
   }
 
   if (processingCount > 0) {
-    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm md:p-6'
+    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm md:p-5'
   }
 
-  return ui.card.base
+  return ui.card.compact
 }
 
 function getOpenAccountsCardClass(
@@ -95,14 +39,14 @@ function getOpenAccountsCardClass(
   overdueOpenAccountsCount: number
 ) {
   if (overdueOpenAccountsCount > 0) {
-    return 'rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-sm md:p-6'
+    return 'rounded-2xl border border-red-200 bg-red-50/40 p-4 shadow-sm md:p-5'
   }
 
   if (openAccountsCount > 0) {
-    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm md:p-6'
+    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm md:p-5'
   }
 
-  return ui.card.base
+  return ui.card.compact
 }
 
 function getProcessingLabel(processingStatus: string | null | undefined) {
@@ -144,6 +88,41 @@ function getOpenAccountQuickActionLabel(entryType: 'sale_due' | 'expense_due') {
   }
 
   return 'Revisar próximo pagamento'
+}
+
+function getPendingBadgeClass(
+  readyCount: number,
+  failedCount: number,
+  processingCount: number
+) {
+  if (failedCount > 0) {
+    return ui.badge.danger
+  }
+
+  if (readyCount > 0) {
+    return ui.badge.primary
+  }
+
+  if (processingCount > 0) {
+    return ui.badge.warning
+  }
+
+  return ui.badge.neutral
+}
+
+function getOpenAccountsBadgeClass(
+  openAccountsCount: number,
+  overdueOpenAccountsCount: number
+) {
+  if (overdueOpenAccountsCount > 0) {
+    return ui.badge.danger
+  }
+
+  if (openAccountsCount > 0) {
+    return ui.badge.warning
+  }
+
+  return ui.badge.neutral
 }
 
 export default async function PainelPage() {
@@ -243,10 +222,7 @@ export default async function PainelPage() {
       <div className="mx-auto max-w-4xl space-y-4">
         <div className={ui.card.base}>
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
-                <MicrophoneIcon />
-              </span>
+            <div>
               <h1 className={ui.text.sectionTitle}>Prumo</h1>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -280,47 +256,50 @@ export default async function PainelPage() {
           <span className="text-neutral-400">›</span>
         </Link>
 
-        <div
+        <DashboardCollapsibleCard
           id="pendentes"
           className={getPendingCardClass(readyCount, failedCount, processingCount)}
+          title="Revisões pendentes"
+          description="Lançamentos por voz aguardando conferência."
+          badge={pendingCount}
+          badgeClassName={getPendingBadgeClass(
+            readyCount,
+            failedCount,
+            processingCount
+          )}
+          infoLabel="Mais informações sobre revisões pendentes"
+          infoContent="Aqui ficam os lançamentos que ainda precisam ser conferidos antes de entrar no resumo financeiro."
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
-                <PendingIcon />
-              </span>
-              <div>
-                <h2 className={ui.text.sectionTitle}>Pendentes</h2>
-                <p className={ui.text.subtle}>Revisar antes de confirmar</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              {pendingCount > 0 && <span className={ui.badge.primary}>{pendingCount}</span>}
-              {nextReadyEntry && (
-                <Link href={`/revisar/${nextReadyEntry.id}`} className={ui.button.neutral}>
+          <div className="space-y-6">
+            {nextReadyEntry && (
+              <div className="flex justify-end">
+                <Link
+                  href={`/revisar/${nextReadyEntry.id}`}
+                  className={ui.button.neutral}
+                >
                   Revisar próximo
                 </Link>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
 
-          {!pendingError && pendingCount > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {readyCount > 0 && (
-                <span className={ui.badge.primary}>{readyCount} para revisar</span>
-              )}
-              {failedCount > 0 && (
-                <span className={ui.badge.danger}>{failedCount} com falha</span>
-              )}
-              {processingCount > 0 && (
-                <span className={ui.badge.warning}>
-                  {processingCount} processando
-                </span>
-              )}
-            </div>
-          )}
+            {!pendingError && pendingCount > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {readyCount > 0 && (
+                  <span className={ui.badge.primary}>
+                    {readyCount} para revisar
+                  </span>
+                )}
+                {failedCount > 0 && (
+                  <span className={ui.badge.danger}>{failedCount} com falha</span>
+                )}
+                {processingCount > 0 && (
+                  <span className={ui.badge.warning}>
+                    {processingCount} processando
+                  </span>
+                )}
+              </div>
+            )}
 
-          <div className="mt-6 space-y-6">
             {pendingError && (
               <p className="text-sm text-red-600">
                 Erro ao carregar pendentes: {pendingError.message}
@@ -445,56 +424,59 @@ export default async function PainelPage() {
               </div>
             )}
           </div>
-        </div>
+        </DashboardCollapsibleCard>
 
-        <div
+        <DashboardCollapsibleCard
           id="contas-em-aberto"
           className={getOpenAccountsCardClass(
             openAccountsCount,
             overdueOpenAccountsCount
           )}
+          title="Contas em aberto"
+          description="Valores a receber e a pagar, vencidos ou ainda no prazo."
+          badge={openAccountsCount}
+          badgeClassName={getOpenAccountsBadgeClass(
+            openAccountsCount,
+            overdueOpenAccountsCount
+          )}
+          infoLabel="Mais informações sobre contas em aberto"
+          infoContent="Aqui ficam os valores a receber e a pagar que já foram confirmados, mas ainda não foram liquidados."
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
-                <OpenAccountsIcon />
-              </span>
-              <div>
-                <h2 className={ui.text.sectionTitle}>Contas em aberto</h2>
-                <p className={ui.text.subtle}>Revisar antes de registrar</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              {openAccountsCount > 0 && <span className={overdueOpenAccountsCount > 0 ? ui.badge.danger : ui.badge.warning}>{openAccountsCount}</span>}
-              {nextOpenAccount && (
-                <Link href={`/liquidar/${nextOpenAccount.id}`} className={ui.button.neutral}>
+          <div className="space-y-6">
+            {nextOpenAccount && (
+              <div className="flex justify-end">
+                <Link
+                  href={`/liquidar/${nextOpenAccount.id}`}
+                  className={ui.button.neutral}
+                >
                   {getOpenAccountQuickActionLabel(nextOpenAccount.entry_type)}
                 </Link>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
 
-          {!openReceivablesError && !openPayablesError && openAccountsCount > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {overdueOpenAccountsCount > 0 && (
-                <span className={ui.badge.danger}>
-                  {overdueOpenAccountsCount} vencida{overdueOpenAccountsCount > 1 ? 's' : ''}
-                </span>
-              )}
-              {openReceivablesCount > 0 && (
-                <span className={ui.badge.primary}>
-                  {openReceivablesCount} a receber
-                </span>
-              )}
-              {openPayablesCount > 0 && (
-                <span className={ui.badge.warning}>
-                  {openPayablesCount} a pagar
-                </span>
-              )}
-            </div>
-          )}
+            {!openReceivablesError &&
+              !openPayablesError &&
+              openAccountsCount > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {overdueOpenAccountsCount > 0 && (
+                  <span className={ui.badge.danger}>
+                    {overdueOpenAccountsCount} vencida
+                    {overdueOpenAccountsCount > 1 ? 's' : ''}
+                  </span>
+                )}
+                {openReceivablesCount > 0 && (
+                  <span className={ui.badge.primary}>
+                    {openReceivablesCount} a receber
+                  </span>
+                )}
+                {openPayablesCount > 0 && (
+                  <span className={ui.badge.warning}>
+                    {openPayablesCount} a pagar
+                  </span>
+                )}
+              </div>
+            )}
 
-          <div className="mt-6 space-y-6">
             {(openReceivablesError || openPayablesError) && (
               <p className="text-sm text-red-600">
                 Erro ao carregar contas em aberto:{' '}
@@ -598,7 +580,7 @@ export default async function PainelPage() {
               </div>
             )}
           </div>
-        </div>
+        </DashboardCollapsibleCard>
 
         <InstallAppCard />
       </div>

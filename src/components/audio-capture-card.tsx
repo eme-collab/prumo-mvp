@@ -330,40 +330,47 @@ export default function AudioCaptureCard() {
   }
 
   function getMainButtonLabel() {
-    if (isSubmittingCapture) return 'Enviando...'
-    if (isRecording) return 'Parar'
-    return 'Gravar'
+    if (isSubmittingCapture) return 'Enviando áudio...'
+    if (isRecording) return 'Parar gravação'
+    return 'Gravar lançamento'
+  }
+
+  function getSupportText() {
+    if (isSubmittingCapture) {
+      return 'Seu áudio está sendo enviado para processamento.'
+    }
+
+    if (isRecording) {
+      return 'Toque novamente para encerrar o áudio.'
+    }
+
+    return 'Fale um lançamento por vez.'
   }
 
   return (
-    <div className={ui.card.primary}>
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
-          <MicrophoneIcon />
-        </span>
-        <div>
-          <h2 className={ui.text.cardTitle}>Registrar</h2>
-          <p className={ui.text.muted}>Por voz</p>
-        </div>
+    <div className={ui.card.primaryCompact}>
+      <div>
+        <h2 className={ui.text.cardTitle}>Gravar lançamento</h2>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-full border border-sky-200 bg-white/80 px-4 py-2">
-        <div className="min-h-[20px]">
+      <div className="mt-3 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/80 px-4 py-3">
+        <div className="flex h-14 items-center">
           <p
             key={rotatingHintIndex}
-            className="text-sm text-sky-800 transition-opacity duration-300"
+            aria-live="polite"
+            className="text-sm leading-5 text-sky-800 transition-opacity duration-300"
           >
             {ROTATING_HINTS[rotatingHintIndex]}
           </p>
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-4">
         <button
           type="button"
           onClick={handleMainButtonClick}
           disabled={isSubmittingCapture}
-          className={`flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-5 text-base font-semibold transition ${
+          className={`flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-base font-semibold transition ${
             isSubmittingCapture
               ? 'cursor-not-allowed bg-sky-400 text-white opacity-70'
               : isRecording
@@ -371,20 +378,11 @@ export default function AudioCaptureCard() {
                 : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-[0.99]'
           }`}
         >
-          {isRecording && (
-            <span className="relative flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
-            </span>
-          )}
-
-          {!isRecording && !isSubmittingCapture && (
-            <span className="inline-flex h-3 w-3 rounded-full border border-white/80" />
-          )}
-
           {isSubmittingCapture && (
             <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
           )}
+
+          {!isSubmittingCapture && <MicrophoneIcon />}
 
           <span>{getMainButtonLabel()}</span>
 
@@ -395,17 +393,11 @@ export default function AudioCaptureCard() {
           )}
         </button>
 
-        <p className="mt-3 text-sm text-sky-900/80">
-          {isSubmittingCapture
-            ? 'Você já pode seguir para o próximo.'
-            : isRecording
-              ? 'Toque de novo para encerrar.'
-              : 'Um áudio por lançamento.'}
-        </p>
+        <p className={`mt-2 ${ui.text.helper}`}>{getSupportText()}</p>
       </div>
 
       {queueMessage && (
-        <div className={`mt-6 ${ui.card.success}`}>
+        <div className={`mt-4 ${ui.card.success}`}>
           <p className="text-sm font-medium">{queueMessage}</p>
 
           <div className="mt-3 flex flex-wrap gap-3">
@@ -419,7 +411,7 @@ export default function AudioCaptureCard() {
       )}
 
       {error && (
-        <div className={`mt-6 ${ui.card.danger}`}>
+        <div className={`mt-4 ${ui.card.danger}`}>
           <p className="text-sm font-medium text-red-700">
             Falha no envio ou processamento
           </p>
