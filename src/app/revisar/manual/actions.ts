@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { buildToastHref } from '@/lib/global-toast'
 import { createClient } from '@/lib/supabase/server'
 
 function getString(formData: FormData, key: string) {
@@ -95,7 +96,11 @@ export async function createManualEntry(formData: FormData) {
 
     revalidatePath('/painel')
     revalidatePath('/resumo')
-    redirect('/painel?notice=manual_confirmed')
+    redirect(
+      buildToastHref('/painel', {
+        kind: 'manual_confirmed',
+      })
+    )
   }
 
   if (intent === 'pending') {
@@ -122,7 +127,11 @@ export async function createManualEntry(formData: FormData) {
 
     revalidatePath('/painel')
     revalidatePath('/resumo')
-    redirect('/painel?notice=manual_pending')
+    redirect(
+      buildToastHref('/painel', {
+        kind: 'manual_pending',
+      })
+    )
   }
 
   redirect('/painel')

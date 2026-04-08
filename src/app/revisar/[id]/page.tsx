@@ -8,22 +8,9 @@ import { ui } from '@/lib/ui'
 function getErrorMessage(error?: string) {
   switch (error) {
     case 'missing_type':
-      return 'Selecione o tipo de lançamento antes de confirmar.'
+      return 'Escolha o tipo antes de confirmar.'
     case 'missing_amount':
       return 'Informe o valor antes de confirmar.'
-    default:
-      return ''
-  }
-}
-
-function getNoticeMessage(notice?: string) {
-  switch (notice) {
-    case 'saved':
-      return 'Rascunho salvo com sucesso.'
-    case 'confirmed_next':
-      return 'Lançamento anterior confirmado. Este é o próximo pendente.'
-    case 'discarded_next':
-      return 'Lançamento anterior descartado. Este é o próximo pendente.'
     default:
       return ''
   }
@@ -32,15 +19,49 @@ function getNoticeMessage(notice?: string) {
 function getProcessingMessage(processingStatus?: string) {
   switch (processingStatus) {
     case 'uploaded':
-      return 'O áudio foi enviado e o processamento ainda vai começar.'
+      return 'Áudio enviado. O processamento vai começar.'
     case 'transcribing':
-      return 'A transcrição está em andamento.'
+      return 'Transcrição em andamento.'
     case 'parsing':
-      return 'A interpretação do lançamento está em andamento.'
+      return 'Interpretação em andamento.'
     case 'failed':
-      return 'O processamento automático falhou. Você pode tentar novamente ou revisar manualmente ouvindo o áudio.'
+      return 'O processamento falhou. Você ainda pode revisar pelo áudio.'
     default:
       return ''
+  }
+}
+
+function getSourceLabel(source: string | null | undefined) {
+  return source === 'manual' ? 'Manual' : 'Voz'
+}
+
+function getReviewStatusLabel(reviewStatus: string | null | undefined) {
+  switch (reviewStatus) {
+    case 'pending':
+      return 'Pendente'
+    case 'confirmed':
+      return 'Confirmado'
+    case 'discarded':
+      return 'Descartado'
+    default:
+      return '-'
+  }
+}
+
+function getProcessingStatusLabel(processingStatus: string | null | undefined) {
+  switch (processingStatus) {
+    case 'uploaded':
+      return 'Áudio enviado'
+    case 'transcribing':
+      return 'Transcrevendo'
+    case 'parsing':
+      return 'Interpretando'
+    case 'failed':
+      return 'Falha no processamento'
+    case 'ready':
+      return 'Pronto para revisar'
+    default:
+      return 'Pronto para revisar'
   }
 }
 
@@ -49,10 +70,10 @@ export default async function RevisarEntryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ error?: string; notice?: string }>
+  searchParams: Promise<{ error?: string }>
 }) {
   const { id } = await params
-  const { error, notice } = await searchParams
+  const { error } = await searchParams
 
   const supabase = await createClient()
 
@@ -93,7 +114,6 @@ export default async function RevisarEntryPage({
   }
 
   const errorMessage = getErrorMessage(error)
-  const noticeMessage = getNoticeMessage(notice)
   const processingMessage = getProcessingMessage(entry.processing_status)
 
   return (
@@ -106,17 +126,9 @@ export default async function RevisarEntryPage({
 
           <h1 className={`mt-4 ${ui.text.pageTitle}`}>Revisar lançamento</h1>
           <p className={`mt-2 ${ui.text.muted}`}>
-            Revise este lançamento. Se o processamento automático falhar, você ainda pode ouvir o áudio e preencher os campos manualmente.
+            Confira os dados. Se precisar, ajuste antes de confirmar.
           </p>
         </div>
-
-        {noticeMessage && (
-          <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-            <p className="text-sm font-medium text-green-800">
-              {noticeMessage}
-            </p>
-          </div>
-        )}
 
         {processingMessage && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -147,9 +159,9 @@ export default async function RevisarEntryPage({
 
         {signedAudioUrl && (
           <div className={ui.card.base}>
-            <h2 className="text-lg font-semibold">Áudio do lançamento</h2>
+            <h2 className="text-lg font-semibold">Áudio original</h2>
             <p className="mt-2 text-sm text-neutral-600">
-              Ouça novamente o áudio para revisar ou preencher os campos manualmente.
+              Ouça de novo se precisar revisar ou completar os dados.
             </p>
 
             <div className="mt-4">
@@ -161,13 +173,15 @@ export default async function RevisarEntryPage({
         <div className={`mb-4 ${ui.card.muted}`}>
           <div className="mb-4 rounded-xl border p-4">
             <p className="text-sm text-neutral-600">
-              Origem: <strong>{entry.source}</strong>
+              Origem: <strong>{getSourceLabel(entry.source)}</strong>
             </p>
             <p className="mt-1 text-sm text-neutral-600">
-              Status de revisão: <strong>{entry.review_status}</strong>
+              Status da revisão:{' '}
+              <strong>{getReviewStatusLabel(entry.review_status)}</strong>
             </p>
             <p className="mt-1 text-sm text-neutral-600">
-              Status de processamento: <strong>{entry.processing_status ?? 'ready'}</strong>
+              Status do processamento:{' '}
+              <strong>{getProcessingStatusLabel(entry.processing_status)}</strong>
             </p>
           </div>
 
@@ -302,16 +316,16 @@ export default async function RevisarEntryPage({
                 type="submit"
                 name="intent"
                 value="save"
-                className="rounded-xl border px-4 py-3 text-sm font-medium"
+                className={ui.button.secondary}
               >
-                Salvar rascunho
+                Salvar para depois
               </button>
 
               <button
                 type="submit"
                 name="intent"
                 value="confirm"
-                className="rounded-xl border px-4 py-3 text-sm font-medium"
+                className={ui.button.primary}
               >
                 Confirmar lançamento
               </button>
@@ -320,9 +334,9 @@ export default async function RevisarEntryPage({
                 type="submit"
                 name="intent"
                 value="discard"
-                className="rounded-xl border px-4 py-3 text-sm font-medium"
+                className={ui.button.danger}
               >
-                Descartar
+                Descartar lançamento
               </button>
             </div>
           </form>

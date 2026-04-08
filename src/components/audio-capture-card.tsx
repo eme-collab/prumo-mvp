@@ -14,6 +14,26 @@ const ROTATING_HINTS = [
   'Exemplo: Comprei 36 reais e 80 centavos na quitanda pra pagar dia 5 do mês que vem.',
 ]
 
+function MicrophoneIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" />
+      <path d="M19 11a7 7 0 0 1-14 0" />
+      <path d="M12 18v3" />
+      <path d="M8 21h8" />
+    </svg>
+  )
+}
+
 function pickSupportedMimeType() {
   const candidates = [
     'audio/ogg',
@@ -205,9 +225,7 @@ export default function AudioCaptureCard() {
       }
 
       setLastEntryId(insertedEntry.id)
-      setQueueMessage(
-        'Áudio enviado com sucesso. Você já pode gravar o próximo ou revisar este lançamento agora.'
-      )
+      setQueueMessage('Áudio enviado.')
 
       router.refresh()
 
@@ -312,19 +330,25 @@ export default function AudioCaptureCard() {
   }
 
   function getMainButtonLabel() {
-    if (isSubmittingCapture) return 'Enviando áudio...'
-    if (isRecording) return 'Toque para parar'
-    return 'Toque para gravar'
+    if (isSubmittingCapture) return 'Enviando...'
+    if (isRecording) return 'Parar'
+    return 'Gravar'
   }
 
   return (
     <div className={ui.card.primary}>
-      <h2 className={ui.text.cardTitle}>Registrar movimentação financeira</h2>
+      <div className="flex items-center gap-3">
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
+          <MicrophoneIcon />
+        </span>
+        <div>
+          <h2 className={ui.text.cardTitle}>Registrar</h2>
+          <p className={ui.text.muted}>Por voz</p>
+        </div>
+      </div>
 
-      <p className={`mt-2 ${ui.text.muted}`}>Fale uma venda, despesa, conta a pagar ou receber. Grave um áudio para cada lançamento.</p>
-
-      <div className="mt-4 overflow-hidden rounded-xl border border-sky-200 bg-white/80 px-4 py-3">
-        <div className="min-h-[44px]">
+      <div className="mt-4 overflow-hidden rounded-full border border-sky-200 bg-white/80 px-4 py-2">
+        <div className="min-h-[20px]">
           <p
             key={rotatingHintIndex}
             className="text-sm text-sky-800 transition-opacity duration-300"
@@ -373,10 +397,10 @@ export default function AudioCaptureCard() {
 
         <p className="mt-3 text-sm text-sky-900/80">
           {isSubmittingCapture
-            ? 'O áudio está sendo enviado. Assim que terminar, você poderá gravar o próximo.'
+            ? 'Você já pode seguir para o próximo.'
             : isRecording
-              ? 'Gravação em andamento. Toque no botão novamente para finalizar.'
-              : 'Toque no botão para registrar uma nova movimentação financeira por voz.'}
+              ? 'Toque de novo para encerrar.'
+              : 'Um áudio por lançamento.'}
         </p>
       </div>
 
@@ -385,10 +409,9 @@ export default function AudioCaptureCard() {
           <p className="text-sm font-medium">{queueMessage}</p>
 
           <div className="mt-3 flex flex-wrap gap-3">
-            
             {lastEntryId && (
               <Link href={`/revisar/${lastEntryId}`} className={ui.button.secondary}>
-                Revisar agora
+                Revisar
               </Link>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { buildToastHref } from '@/lib/global-toast'
 import { createClient } from '@/lib/supabase/server'
 
 function getString(formData: FormData, key: string) {
@@ -117,10 +118,22 @@ export async function submitReview(formData: FormData) {
     const nextId = await getNextPendingEntryId(id)
 
     if (nextId) {
-      redirect(`/revisar/${nextId}?notice=discarded_next`)
+      redirect(
+        buildToastHref(`/revisar/${nextId}`, {
+          kind: 'entry_discarded',
+          undo: 'undo_review_discard',
+          entryId: id,
+        })
+      )
     }
 
-    redirect('/painel?notice=discarded_done')
+    redirect(
+      buildToastHref('/painel', {
+        kind: 'entry_discarded',
+        undo: 'undo_review_discard',
+        entryId: id,
+      })
+    )
   }
 
   if (intent === 'confirm') {
@@ -159,10 +172,22 @@ export async function submitReview(formData: FormData) {
     const nextId = await getNextPendingEntryId(id)
 
     if (nextId) {
-      redirect(`/revisar/${nextId}?notice=confirmed_next`)
+      redirect(
+        buildToastHref(`/revisar/${nextId}`, {
+          kind: 'entry_confirmed',
+          undo: 'undo_review_confirm',
+          entryId: id,
+        })
+      )
     }
 
-    redirect('/painel?notice=confirmed_done')
+    redirect(
+      buildToastHref('/painel', {
+        kind: 'entry_confirmed',
+        undo: 'undo_review_confirm',
+        entryId: id,
+      })
+    )
   }
 
   const { error } = await supabase
@@ -186,5 +211,9 @@ export async function submitReview(formData: FormData) {
 
   revalidatePath('/painel')
   revalidatePath(`/revisar/${id}`)
-  redirect(`/revisar/${id}?notice=saved`)
+  redirect(
+    buildToastHref(`/revisar/${id}`, {
+      kind: 'entry_saved',
+    })
+  )
 }

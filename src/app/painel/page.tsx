@@ -13,21 +13,96 @@ import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
 import { signOut } from './actions'
 
-function getPanelNoticeMessage(notice?: string) {
-  switch (notice) {
-    case 'confirmed_done':
-      return 'Lançamento confirmado com sucesso. Não há mais pendentes no momento.'
-    case 'discarded_done':
-      return 'Lançamento descartado com sucesso. Não há mais pendentes no momento.'
-    case 'manual_confirmed':
-      return 'Lançamento manual salvo e confirmado com sucesso.'
-    case 'manual_pending':
-      return 'Lançamento manual salvo como pendente com sucesso.'
-    case 'settled_done':
-      return 'Liquidação registrada com sucesso.'
-    default:
-      return ''
+function MicrophoneIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" />
+      <path d="M19 11a7 7 0 0 1-14 0" />
+      <path d="M12 18v3" />
+      <path d="M8 21h8" />
+    </svg>
+  )
+}
+
+function PendingIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v4l2.5 2.5" />
+    </svg>
+  )
+}
+
+function OpenAccountsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 14h3" />
+    </svg>
+  )
+}
+
+function getPendingCardClass(
+  readyCount: number,
+  failedCount: number,
+  processingCount: number
+) {
+  if (failedCount > 0) {
+    return 'rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-sm md:p-6'
   }
+
+  if (readyCount > 0) {
+    return 'rounded-2xl border border-sky-200 bg-sky-50/40 p-5 shadow-sm md:p-6'
+  }
+
+  if (processingCount > 0) {
+    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm md:p-6'
+  }
+
+  return ui.card.base
+}
+
+function getOpenAccountsCardClass(
+  openAccountsCount: number,
+  overdueOpenAccountsCount: number
+) {
+  if (overdueOpenAccountsCount > 0) {
+    return 'rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-sm md:p-6'
+  }
+
+  if (openAccountsCount > 0) {
+    return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm md:p-6'
+  }
+
+  return ui.card.base
 }
 
 function getProcessingLabel(processingStatus: string | null | undefined) {
@@ -47,14 +122,31 @@ function getProcessingLabel(processingStatus: string | null | undefined) {
   }
 }
 
-export default async function PainelPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ notice?: string }>
-}) {
-  const { notice } = await searchParams
-  const noticeMessage = getPanelNoticeMessage(notice)
+function getPendingActionLabel(processingStatus: string | null | undefined) {
+  if (processingStatus === 'uploaded' || processingStatus === 'transcribing' || processingStatus === 'parsing') {
+    return 'Ver andamento'
+  }
 
+  return 'Revisar lançamento'
+}
+
+function getOpenAccountReviewLabel(entryType: 'sale_due' | 'expense_due') {
+  if (entryType === 'sale_due') {
+    return 'Revisar recebimento'
+  }
+
+  return 'Revisar pagamento'
+}
+
+function getOpenAccountQuickActionLabel(entryType: 'sale_due' | 'expense_due') {
+  if (entryType === 'sale_due') {
+    return 'Revisar próximo recebimento'
+  }
+
+  return 'Revisar próximo pagamento'
+}
+
+export default async function PainelPage() {
   const supabase = await createClient()
 
   const {
@@ -110,6 +202,12 @@ export default async function PainelPage({
 
   const failedEntries =
     pending?.filter((entry) => entry.processing_status === 'failed') ?? []
+  const readyCount = readyEntries.length
+  const processingCount = processingEntries.length
+  const failedCount = failedEntries.length
+  const nextReadyEntry =
+    [...readyEntries].sort((a, b) => a.created_at.localeCompare(b.created_at))[0] ??
+    null
 
   const openReceivablesCount = openReceivables?.length ?? 0
   const openPayablesCount = openPayables?.length ?? 0
@@ -128,65 +226,99 @@ export default async function PainelPage({
     ...sortedOpenPayables,
   ].filter((entry) => getOpenAccountUrgencyMeta(entry.due_on).rank === 0).length
 
+  const nextOpenAccount =
+    [
+      ...(sortedOpenReceivables ?? []).map((entry) => ({
+        ...entry,
+        entry_type: 'sale_due' as const,
+      })),
+      ...(sortedOpenPayables ?? []).map((entry) => ({
+        ...entry,
+        entry_type: 'expense_due' as const,
+      })),
+    ].sort(compareOpenAccountsByUrgency)[0] ?? null
+
   return (
     <main className={ui.page.shell}>
       <div className="mx-auto max-w-4xl space-y-4">
         <div className={ui.card.base}>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className={ui.text.pageTitle}>Registre por voz as vendas e despesas do seu negócio!</h1>
-              <p className={`mt-3 ${ui.text.subtle}`}>Conectado como: {user.email}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                <MicrophoneIcon />
+              </span>
+              <h1 className={ui.text.sectionTitle}>Prumo</h1>
             </div>
-
             <div className="flex flex-wrap gap-3">
-              <Link href="/resumo" className={ui.button.secondary}>
-                Ver relatórios
+              <Link
+                href="/resumo"
+                className="inline-flex items-center justify-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 active:scale-[0.99]"
+              >
+                Resumo
               </Link>
 
               <form action={signOut}>
-                <button className={ui.button.secondary}>Sair</button>
+                <button className="inline-flex items-center justify-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 active:scale-[0.99]">
+                  Sair
+                </button>
               </form>
             </div>
           </div>
         </div>
 
-        {noticeMessage && (
-          <div className={ui.card.success}>
-            <p className="text-sm font-medium text-green-800">
-              {noticeMessage}
-            </p>
-          </div>
-        )}
-
         <AudioCaptureCard />
 
         <Link
           href="/revisar/manual"
-          className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-900 shadow-sm transition hover:bg-neutral-50 active:scale-[0.99]"
+          className="flex items-center justify-between rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-medium text-neutral-700 transition hover:bg-white active:scale-[0.99]"
         >
           <div className="flex items-center gap-3">
-            <span className="text-base">✍️</span>
-            <span>Fazer lançamento manual</span>
+            <span className="text-sm">✍️</span>
+            <span>Manual</span>
           </div>
 
           <span className="text-neutral-400">›</span>
         </Link>
 
-        <InstallAppCard />
-
-        <details className={ui.card.base}>
-          <summary className="cursor-pointer list-none">
-            <div className="flex items-center justify-between gap-4">
+        <div
+          id="pendentes"
+          className={getPendingCardClass(readyCount, failedCount, processingCount)}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
+                <PendingIcon />
+              </span>
               <div>
-                <h2 className={ui.text.sectionTitle}>Lançamentos pendentes</h2>
-                <p className={`mt-1 ${ui.text.muted}`}>
-                  Registros aguardando processamento, revisão ou confirmação.
-                </p>
+                <h2 className={ui.text.sectionTitle}>Pendentes</h2>
+                <p className={ui.text.subtle}>Revisar antes de confirmar</p>
               </div>
-
-              <span className={ui.badge.primary}>{pendingCount}</span>
             </div>
-          </summary>
+            <div className="flex flex-col items-end gap-2">
+              {pendingCount > 0 && <span className={ui.badge.primary}>{pendingCount}</span>}
+              {nextReadyEntry && (
+                <Link href={`/revisar/${nextReadyEntry.id}`} className={ui.button.neutral}>
+                  Revisar próximo
+                </Link>
+              )}
+            </div>
+          </div>
+
+          {!pendingError && pendingCount > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {readyCount > 0 && (
+                <span className={ui.badge.primary}>{readyCount} para revisar</span>
+              )}
+              {failedCount > 0 && (
+                <span className={ui.badge.danger}>{failedCount} com falha</span>
+              )}
+              {processingCount > 0 && (
+                <span className={ui.badge.warning}>
+                  {processingCount} processando
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="mt-6 space-y-6">
             {pendingError && (
@@ -196,51 +328,13 @@ export default async function PainelPage({
             )}
 
             {!pendingError && pendingCount === 0 && (
-              <p className={ui.text.muted}>Nenhum lançamento pendente.</p>
-            )}
-
-            {!pendingError && processingEntries.length > 0 && (
-              <div>
-                <h3 className={ui.text.label}>Processando</h3>
-                <ul className="mt-3 space-y-3">
-                  {processingEntries.map((entry) => (
-                    <li key={entry.id} className={ui.card.muted}>
-                      <p className={ui.text.body}>
-                        {entry.transcript
-                          ? entry.transcript
-                          : entry.audio_path
-                            ? 'Áudio enviado para processamento.'
-                            : 'Sem transcrição'}
-                      </p>
-
-                      <p className={`mt-2 ${ui.text.subtle}`}>
-                        Origem: {entry.source === 'manual' ? 'Manual' : 'Voz'}
-                      </p>
-
-                      <p className={`mt-1 ${ui.text.subtle}`}>
-                        Status: {getProcessingLabel(entry.processing_status)}
-                      </p>
-
-                      <p className={`mt-1 ${ui.text.subtle}`}>
-                        Data: {entry.occurred_on ?? '-'}
-                      </p>
-
-                      <Link
-                        href={`/revisar/${entry.id}`}
-                        className={`mt-3 ${ui.button.neutral}`}
-                      >
-                        Abrir revisão
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <p className={ui.text.muted}>✅ Nenhum pendente agora.</p>
             )}
 
             {!pendingError && readyEntries.length > 0 && (
               <div>
-                <h3 className={ui.text.label}>Prontos para revisar</h3>
-                <ul className="mt-3 space-y-3">
+                <h3 className={`${ui.text.label} mb-3`}>Prontos para revisar</h3>
+                <ul className="space-y-3">
                   {readyEntries.map((entry) => (
                     <li key={entry.id} className={ui.card.muted}>
                       <p className={ui.text.body}>
@@ -252,11 +346,8 @@ export default async function PainelPage({
                       </p>
 
                       <p className={`mt-2 ${ui.text.subtle}`}>
-                        Origem: {entry.source === 'manual' ? 'Manual' : 'Voz'}
-                      </p>
-
-                      <p className={`mt-1 ${ui.text.subtle}`}>
-                        Data: {entry.occurred_on ?? '-'}
+                        {entry.source === 'manual' ? 'Manual' : 'Voz'} •{' '}
+                        {entry.occurred_on ?? 'Sem data'}
                       </p>
 
                       {(entry.entry_type ||
@@ -264,17 +355,16 @@ export default async function PainelPage({
                         entry.description) && (
                         <div className={`mt-3 ${ui.card.inner}`}>
                           <p className={ui.text.subtle}>
-                            Tipo: {getEntryTypeLabel(entry.entry_type)}
-                          </p>
-                          <p className={`mt-1 ${ui.text.subtle}`}>
-                            Valor:{' '}
+                            {getEntryTypeLabel(entry.entry_type)} •{' '}
                             {entry.amount !== null
                               ? formatCurrency(entry.amount)
                               : '-'}
                           </p>
-                          <p className={`mt-1 ${ui.text.subtle}`}>
-                            Descrição: {entry.description ?? '-'}
-                          </p>
+                          {entry.description && (
+                            <p className={`mt-1 ${ui.text.subtle}`}>
+                              {entry.description}
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -282,7 +372,7 @@ export default async function PainelPage({
                         href={`/revisar/${entry.id}`}
                         className={`mt-3 ${ui.button.neutral}`}
                       >
-                        Revisar lançamento
+                        {getPendingActionLabel(entry.processing_status)}
                       </Link>
                     </li>
                   ))}
@@ -292,8 +382,8 @@ export default async function PainelPage({
 
             {!pendingError && failedEntries.length > 0 && (
               <div>
-                <h3 className={ui.text.label}>Falharam</h3>
-                <ul className="mt-3 space-y-3">
+                <h3 className={`${ui.text.label} mb-3 text-red-700`}>Falha</h3>
+                <ul className="space-y-3">
                   {failedEntries.map((entry) => (
                     <li key={entry.id} className={ui.card.muted}>
                       <p className={ui.text.body}>
@@ -305,18 +395,49 @@ export default async function PainelPage({
                       </p>
 
                       <p className={`mt-2 ${ui.text.subtle}`}>
-                        Origem: {entry.source === 'manual' ? 'Manual' : 'Voz'}
+                        {entry.source === 'manual' ? 'Manual' : 'Voz'}
                       </p>
 
                       <p className="mt-1 text-xs text-red-600">
-                        Erro: {entry.processing_error ?? 'Erro desconhecido'}
+                        {entry.processing_error ?? 'Erro desconhecido'}
                       </p>
 
                       <Link
                         href={`/revisar/${entry.id}`}
                         className={`mt-3 ${ui.button.neutral}`}
                       >
-                        Revisar lançamento
+                        {getPendingActionLabel(entry.processing_status)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {!pendingError && processingEntries.length > 0 && (
+              <div>
+                <h3 className={`${ui.text.label} mb-3`}>Processando</h3>
+                <ul className="space-y-3">
+                  {processingEntries.map((entry) => (
+                    <li key={entry.id} className={ui.card.muted}>
+                      <p className={ui.text.body}>
+                        {entry.transcript
+                          ? entry.transcript
+                          : entry.audio_path
+                            ? 'Áudio enviado para processamento.'
+                            : 'Sem transcrição'}
+                      </p>
+
+                      <p className={`mt-2 ${ui.text.subtle}`}>
+                        {entry.source === 'manual' ? 'Manual' : 'Voz'} •{' '}
+                        {getProcessingLabel(entry.processing_status)}
+                      </p>
+
+                      <Link
+                        href={`/revisar/${entry.id}`}
+                        className={`mt-3 ${ui.button.neutral}`}
+                      >
+                        {getPendingActionLabel(entry.processing_status)}
                       </Link>
                     </li>
                   ))}
@@ -324,35 +445,56 @@ export default async function PainelPage({
               </div>
             )}
           </div>
-        </details>
+        </div>
 
-        <details className={ui.card.base}>
-          <summary className="cursor-pointer list-none">
-            <div className="flex items-center justify-between gap-4">
+        <div
+          id="contas-em-aberto"
+          className={getOpenAccountsCardClass(
+            openAccountsCount,
+            overdueOpenAccountsCount
+          )}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
+                <OpenAccountsIcon />
+              </span>
               <div>
                 <h2 className={ui.text.sectionTitle}>Contas em aberto</h2>
-                <p className={`mt-1 ${ui.text.muted}`}>
-                  Contas a pagar e a receber já confirmadas, aguardando
-                  liquidação.
-                </p>
+                <p className={ui.text.subtle}>Revisar antes de registrar</p>
               </div>
-
-              <span className={ui.badge.warning}>{openAccountsCount}</span>
             </div>
-          </summary>
+            <div className="flex flex-col items-end gap-2">
+              {openAccountsCount > 0 && <span className={overdueOpenAccountsCount > 0 ? ui.badge.danger : ui.badge.warning}>{openAccountsCount}</span>}
+              {nextOpenAccount && (
+                <Link href={`/liquidar/${nextOpenAccount.id}`} className={ui.button.neutral}>
+                  {getOpenAccountQuickActionLabel(nextOpenAccount.entry_type)}
+                </Link>
+              )}
+            </div>
+          </div>
+
+          {!openReceivablesError && !openPayablesError && openAccountsCount > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {overdueOpenAccountsCount > 0 && (
+                <span className={ui.badge.danger}>
+                  {overdueOpenAccountsCount} vencida{overdueOpenAccountsCount > 1 ? 's' : ''}
+                </span>
+              )}
+              {openReceivablesCount > 0 && (
+                <span className={ui.badge.primary}>
+                  {openReceivablesCount} a receber
+                </span>
+              )}
+              {openPayablesCount > 0 && (
+                <span className={ui.badge.warning}>
+                  {openPayablesCount} a pagar
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="mt-6 space-y-6">
-            {!openReceivablesError &&
-              !openPayablesError &&
-              overdueOpenAccountsCount > 0 && (
-                <div className={ui.card.danger}>
-                  <p className="text-sm font-medium text-red-700">
-                    Há {overdueOpenAccountsCount} conta(s) vencida(s) exigindo
-                    ação.
-                  </p>
-                </div>
-              )}
-
             {(openReceivablesError || openPayablesError) && (
               <p className="text-sm text-red-600">
                 Erro ao carregar contas em aberto:{' '}
@@ -363,13 +505,13 @@ export default async function PainelPage({
             {!openReceivablesError &&
               !openPayablesError &&
               openAccountsCount === 0 && (
-                <p className={ui.text.muted}>Nenhuma conta em aberto.</p>
+                <p className={ui.text.muted}>✅ Nenhuma conta em aberto.</p>
               )}
 
             {!openReceivablesError && sortedOpenReceivables.length > 0 && (
               <div>
-                <h3 className={ui.text.label}>A receber</h3>
-                <ul className="mt-3 space-y-3">
+                <h3 className={`${ui.text.label} mb-3`}>Receber</h3>
+                <ul className="space-y-3">
                   {sortedOpenReceivables.map((entry) => {
                     const urgency = getOpenAccountUrgencyMeta(entry.due_on)
 
@@ -381,13 +523,11 @@ export default async function PainelPage({
                               {entry.description ?? 'Sem descrição'}
                             </p>
                             <p className={`mt-1 ${ui.text.subtle}`}>
-                              Contraparte: {entry.counterparty_name ?? '-'}
+                              {entry.counterparty_name ?? 'Sem nome'} •{' '}
+                              {formatCurrency(entry.amount ?? 0)}
                             </p>
                             <p className={`mt-1 ${ui.text.subtle}`}>
-                              Valor: {formatCurrency(entry.amount ?? 0)}
-                            </p>
-                            <p className={`mt-1 ${ui.text.subtle}`}>
-                              Vencimento: {entry.due_on ?? '-'}
+                              {entry.due_on ? `Vence ${entry.due_on}` : 'Sem vencimento'}
                             </p>
                           </div>
 
@@ -404,7 +544,7 @@ export default async function PainelPage({
                           href={`/liquidar/${entry.id}`}
                           className={`mt-3 ${ui.button.neutral}`}
                         >
-                          Registrar liquidação
+                          {getOpenAccountReviewLabel('sale_due')}
                         </Link>
                       </li>
                     )
@@ -415,8 +555,8 @@ export default async function PainelPage({
 
             {!openPayablesError && sortedOpenPayables.length > 0 && (
               <div>
-                <h3 className={ui.text.label}>A pagar</h3>
-                <ul className="mt-3 space-y-3">
+                <h3 className={`${ui.text.label} mb-3`}>Pagar</h3>
+                <ul className="space-y-3">
                   {sortedOpenPayables.map((entry) => {
                     const urgency = getOpenAccountUrgencyMeta(entry.due_on)
 
@@ -428,13 +568,11 @@ export default async function PainelPage({
                               {entry.description ?? 'Sem descrição'}
                             </p>
                             <p className={`mt-1 ${ui.text.subtle}`}>
-                              Contraparte: {entry.counterparty_name ?? '-'}
+                              {entry.counterparty_name ?? 'Sem nome'} •{' '}
+                              {formatCurrency(entry.amount ?? 0)}
                             </p>
                             <p className={`mt-1 ${ui.text.subtle}`}>
-                              Valor: {formatCurrency(entry.amount ?? 0)}
-                            </p>
-                            <p className={`mt-1 ${ui.text.subtle}`}>
-                              Vencimento: {entry.due_on ?? '-'}
+                              {entry.due_on ? `Vence ${entry.due_on}` : 'Sem vencimento'}
                             </p>
                           </div>
 
@@ -451,7 +589,7 @@ export default async function PainelPage({
                           href={`/liquidar/${entry.id}`}
                           className={`mt-3 ${ui.button.neutral}`}
                         >
-                          Registrar liquidação
+                          {getOpenAccountReviewLabel('expense_due')}
                         </Link>
                       </li>
                     )
@@ -460,7 +598,9 @@ export default async function PainelPage({
               </div>
             )}
           </div>
-        </details>
+        </div>
+
+        <InstallAppCard />
       </div>
     </main>
   )

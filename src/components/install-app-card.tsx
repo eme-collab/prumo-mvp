@@ -132,13 +132,12 @@ export default function InstallAppCard() {
   }
 
   return (
-    <div className={ui.card.base}>
+    <div className={ui.card.muted}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className={ui.text.sectionTitle}>Instalar o Prumo</h2>
-          <p className={`mt-2 ${ui.text.muted}`}>
-            Adicione o Prumo na tela inicial para abrir com cara de aplicativo e
-            voltar mais rápido ao seu painel.
+          <h2 className={ui.text.sectionTitle}>Instalar app</h2>
+          <p className={`mt-1 ${ui.text.subtle}`}>
+            Abra o Prumo como app no celular.
           </p>
         </div>
 
@@ -158,24 +157,24 @@ export default function InstallAppCard() {
             type="button"
             onClick={handleInstallClick}
             disabled={isInstalling}
-            className={ui.button.primary}
+            className={ui.button.neutral}
           >
-            {isInstalling ? 'Abrindo instalador...' : 'Instalar app'}
+            {isInstalling ? 'Abrindo...' : 'Instalar'}
           </button>
 
           <button
             type="button"
             onClick={dismissCard}
-            className={ui.button.secondary}
+            className={ui.button.neutral}
           >
             Depois
           </button>
         </div>
       ) : (
-        <div className={`mt-4 ${ui.card.muted}`}>
+        <div className="mt-4 rounded-lg border border-neutral-200 bg-white px-3 py-3">
           <p className={ui.text.body}>
-            No iPhone ou iPad, toque em Compartilhar e depois em Adicionar à
-            Tela de Início para instalar o Prumo.
+            No iPhone ou iPad, use Compartilhar e depois Adicionar à Tela de
+            Início.
           </p>
         </div>
       )}

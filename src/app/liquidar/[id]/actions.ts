@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { buildToastHref } from '@/lib/global-toast'
 import { createClient } from '@/lib/supabase/server'
 
 function getString(formData: FormData, key: string) {
@@ -101,5 +102,12 @@ export async function settleEntry(formData: FormData) {
   revalidatePath('/resumo')
   revalidatePath(`/liquidar/${id}`)
 
-  redirect('/painel?notice=settled_done')
+  redirect(
+    buildToastHref('/painel', {
+      kind:
+        entry.entry_type === 'sale_due'
+          ? 'receipt_confirmed'
+          : 'payment_confirmed',
+    })
+  )
 }

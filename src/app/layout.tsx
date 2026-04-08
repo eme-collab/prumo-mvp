@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { Suspense } from 'react'
+import GlobalToast from '@/components/global-toast'
 import PwaBootstrap from '@/components/pwa-bootstrap'
 import './globals.css'
 
@@ -75,6 +77,9 @@ export default function RootLayout({
     >
       <body className="min-h-full font-sans text-neutral-950">
         <PwaBootstrap />
+        <Suspense fallback={null}>
+          <GlobalToast />
+        </Suspense>
         {children}
       </body>
     </html>

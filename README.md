@@ -62,7 +62,7 @@ Nesta fase, o objetivo é deixar o Prumo com cara de aplicativo no celular sem a
 - estratégia de atualização silenciosa do app instalado;
 - fallback offline seguro sem expor dados autenticados em cache;
 - consistência melhor em modo standalone;
-- UX mais clara para o limite real do login por link por e-mail no app instalado.
+- UX de autenticação mais simples e consistente no app instalado.
 
 ### Fase 3 de reengajamento com notificações push
 - base completa de push notifications no PWA;
@@ -168,10 +168,8 @@ Para testar a instalação localmente, prefira HTTPS no desenvolvimento (`next d
 - APIs autenticadas;
 - dados financeiros do usuário.
 
-#### Limitação conhecida do login por e-mail no PWA instalado
-No app instalado, o login por link enviado por e-mail pode abrir no navegador do sistema em vez de retornar diretamente ao PWA. Por isso, a UX do login orienta o usuário a:
-- preferir Google no app instalado, quando possível;
-- voltar ao Prumo pelo ícone da tela inicial após concluir o login por e-mail no navegador.
+#### Login atual no PWA instalado
+O fluxo atual do MVP usa login com Google. Isso reduz fricção no app instalado e evita depender de retorno por link de e-mail fora da experiência principal.
 
 ### Push notifications
 O Prumo usa Web Push para reengajar o usuário apenas quando existe ação útil:

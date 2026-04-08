@@ -10,26 +10,80 @@ import { ui } from '@/lib/ui'
 import { settleEntry } from './actions'
 
 function getErrorMessage(error?: string) {
-  switch (error) {
-    case 'missing_settled_on':
-      return 'Informe a data real da liquidação.'
-    case 'missing_settled_amount':
-      return 'Informe o valor efetivamente pago ou recebido.'
-    default:
-      return ''
+  return function resolve(entryType: string | null) {
+    switch (error) {
+      case 'missing_settled_on':
+        return entryType === 'sale_due'
+          ? 'Informe a data do recebimento.'
+          : 'Informe a data do pagamento.'
+      case 'missing_settled_amount':
+        return entryType === 'sale_due'
+          ? 'Informe o valor recebido.'
+          : 'Informe o valor pago.'
+      default:
+        return ''
+    }
   }
 }
 
 function getTitle(entryType: string | null) {
   if (entryType === 'sale_due') {
-    return 'Registrar liquidação de conta a receber'
+    return 'Registrar recebimento'
   }
 
   if (entryType === 'expense_due') {
-    return 'Registrar liquidação de conta a pagar'
+    return 'Registrar pagamento'
   }
 
-  return 'Registrar liquidação'
+  return 'Registrar baixa'
+}
+
+function getSubmitLabel(entryType: string | null) {
+  if (entryType === 'sale_due') {
+    return 'Confirmar recebimento'
+  }
+
+  if (entryType === 'expense_due') {
+    return 'Confirmar pagamento'
+  }
+
+  return 'Confirmar'
+}
+
+function getIntroMessage(entryType: string | null) {
+  if (entryType === 'sale_due') {
+    return 'Confira os dados antes de confirmar o recebimento desta conta.'
+  }
+
+  if (entryType === 'expense_due') {
+    return 'Confira os dados antes de confirmar o pagamento desta conta.'
+  }
+
+  return 'Confira os dados antes de concluir esta conta.'
+}
+
+function getSettlementDateLabel(entryType: string | null) {
+  if (entryType === 'sale_due') {
+    return 'Data do recebimento'
+  }
+
+  if (entryType === 'expense_due') {
+    return 'Data do pagamento'
+  }
+
+  return 'Data'
+}
+
+function getSettlementAmountLabel(entryType: string | null) {
+  if (entryType === 'sale_due') {
+    return 'Valor recebido'
+  }
+
+  if (entryType === 'expense_due') {
+    return 'Valor pago'
+  }
+
+  return 'Valor final'
 }
 
 export default async function LiquidarEntryPage({
@@ -41,7 +95,7 @@ export default async function LiquidarEntryPage({
 }) {
   const { id } = await params
   const { error } = await searchParams
-  const errorMessage = getErrorMessage(error)
+  const resolveErrorMessage = getErrorMessage(error)
 
   const supabase = await createClient()
 
@@ -77,6 +131,8 @@ export default async function LiquidarEntryPage({
     redirect('/painel')
   }
 
+  const errorMessage = resolveErrorMessage(entry.entry_type)
+
   const today = new Date().toISOString().slice(0, 10)
 
   return (
@@ -92,8 +148,7 @@ export default async function LiquidarEntryPage({
           </h1>
 
           <p className={`mt-2 ${ui.text.muted}`}>
-            Esta tela registra a liquidação da conta sem apagar o histórico
-            original do lançamento.
+            {getIntroMessage(entry.entry_type)}
           </p>
         </div>
 
@@ -106,17 +161,17 @@ export default async function LiquidarEntryPage({
         <div className={ui.card.base}>
           <div className={`mb-4 ${ui.card.muted}`}>
             <p className={ui.text.body}>
-              Tipo original:{' '}
+              Tipo do lançamento:{' '}
               <strong>{getEntryTypeLabel(entry.entry_type)}</strong>
             </p>
             <p className={`mt-1 ${ui.text.body}`}>
-              Status de liquidação atual:{' '}
+              Situação atual:{' '}
               <strong>
                 {getSettlementStatusLabel(entry.settlement_status ?? 'open')}
               </strong>
             </p>
             <p className={`mt-1 ${ui.text.body}`}>
-              Valor original atual:{' '}
+              Valor previsto:{' '}
               <strong>{formatCurrency(entry.amount ?? 0)}</strong>
             </p>
           </div>
@@ -154,7 +209,7 @@ export default async function LiquidarEntryPage({
 
             <div>
               <label htmlFor="amount" className={ui.text.label}>
-                Valor original do lançamento
+                Valor previsto
               </label>
               <input
                 id="amount"
@@ -168,7 +223,7 @@ export default async function LiquidarEntryPage({
 
             <div>
               <label htmlFor="due_on" className={ui.text.label}>
-                Vencimento original
+                Vencimento
               </label>
               <input
                 id="due_on"
@@ -182,7 +237,7 @@ export default async function LiquidarEntryPage({
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label htmlFor="settled_on" className={ui.text.label}>
-                  Data real da liquidação
+                  {getSettlementDateLabel(entry.entry_type)}
                 </label>
                 <input
                   id="settled_on"
@@ -195,7 +250,7 @@ export default async function LiquidarEntryPage({
 
               <div>
                 <label htmlFor="settled_amount" className={ui.text.label}>
-                  Valor efetivamente pago/recebido
+                  {getSettlementAmountLabel(entry.entry_type)}
                 </label>
                 <input
                   id="settled_amount"
@@ -214,7 +269,7 @@ export default async function LiquidarEntryPage({
 
             <div className="flex flex-wrap gap-3 pt-2">
               <button type="submit" className={ui.button.primary}>
-                Salvar liquidação
+                {getSubmitLabel(entry.entry_type)}
               </button>
 
               <Link href="/painel" className={ui.button.secondary}>
