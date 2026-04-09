@@ -1,18 +1,30 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
+import FinancialEntryForm from '@/components/financial-entry-form'
 import { createClient } from '@/lib/supabase/server'
 import ReprocessEntryButton from '@/components/reprocess-entry-button'
-import { submitReview } from './actions'
+import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
+import { submitEntryEdit, submitReview } from './actions'
 import { ui } from '@/lib/ui'
 
 function getErrorMessage(error?: string) {
-  switch (error) {
-    case 'missing_type':
-      return 'Escolha o tipo antes de confirmar.'
-    case 'missing_amount':
-      return 'Informe o valor antes de confirmar.'
-    default:
-      return ''
+  return function resolve(entryType: string | null | undefined) {
+    switch (error) {
+      case 'missing_type':
+        return 'Escolha o tipo antes de confirmar.'
+      case 'missing_amount':
+        return 'Informe o valor antes de confirmar.'
+      case 'missing_settled_on':
+        return entryType === 'sale_due'
+          ? 'Informe a data do recebimento.'
+          : 'Informe a data do pagamento.'
+      case 'missing_settled_amount':
+        return entryType === 'sale_due'
+          ? 'Informe o valor recebido.'
+          : 'Informe o valor pago.'
+      default:
+        return ''
+    }
   }
 }
 
@@ -70,10 +82,10 @@ export default async function RevisarEntryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; mode?: string; returnTo?: string }>
 }) {
   const { id } = await params
-  const { error } = await searchParams
+  const { error, mode, returnTo } = await searchParams
 
   const supabase = await createClient()
 
@@ -88,7 +100,7 @@ export default async function RevisarEntryPage({
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
     .select(
-      'id, source, audio_path, review_status, processing_status, processing_error, entry_type, description, counterparty_name, amount, occurred_on, due_on, transcript, created_at'
+      'id, source, audio_path, review_status, processing_status, processing_error, entry_type, description, counterparty_name, amount, occurred_on, due_on, transcript, created_at, settlement_status, settled_on, settled_amount'
     )
     .eq('id', id)
     .maybeSingle()
@@ -99,6 +111,13 @@ export default async function RevisarEntryPage({
 
   if (!entry) {
     notFound()
+  }
+
+  const safeReturnTo = sanitizeResumoReturnTo(returnTo)
+  const isEditMode = mode === 'edit'
+
+  if (isEditMode && entry.review_status !== 'confirmed') {
+    redirect(`/revisar/${id}`)
   }
 
   let signedAudioUrl: string | null = null
@@ -113,24 +132,36 @@ export default async function RevisarEntryPage({
     }
   }
 
-  const errorMessage = getErrorMessage(error)
+  const resolveErrorMessage = getErrorMessage(error)
   const processingMessage = getProcessingMessage(entry.processing_status)
+  const errorMessage = resolveErrorMessage(entry.entry_type)
+  const title = isEditMode ? 'Editar movimentação' : 'Revisar lançamento'
+  const introMessage = isEditMode
+    ? 'Ajuste os dados desta movimentação confirmada.'
+    : 'Confira os dados. Se precisar, ajuste antes de confirmar.'
+  const backHref = isEditMode ? safeReturnTo : '/painel'
+  const backLabel = isEditMode ? 'Voltar para o resumo' : 'Voltar para o painel'
+  const formAction = isEditMode ? submitEntryEdit : submitReview
+  const showSettlementFields =
+    isEditMode &&
+    entry.settlement_status === 'settled' &&
+    (entry.entry_type === 'sale_due' || entry.entry_type === 'expense_due')
 
   return (
     <main className={ui.page.shell}>
       <div className={ui.page.containerNarrow}>
         <div className={ui.card.base}>
-          <Link href="/painel" className="text-sm underline">
-            Voltar para o painel
+          <Link href={backHref} className="text-sm underline">
+            {backLabel}
           </Link>
 
-          <h1 className={`mt-4 ${ui.text.pageTitle}`}>Revisar lançamento</h1>
+          <h1 className={`mt-4 ${ui.text.pageTitle}`}>{title}</h1>
           <p className={`mt-2 ${ui.text.muted}`}>
-            Confira os dados. Se precisar, ajuste antes de confirmar.
+            {introMessage}
           </p>
         </div>
 
-        {processingMessage && (
+        {!isEditMode && processingMessage && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-medium text-amber-800">
               {processingMessage}
@@ -138,7 +169,9 @@ export default async function RevisarEntryPage({
           </div>
         )}
 
-        {entry.processing_status === 'failed' && entry.processing_error && (
+        {!isEditMode &&
+          entry.processing_status === 'failed' &&
+          entry.processing_error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 space-y-3">
             <p className="text-sm font-medium text-red-700">
               Erro de processamento
@@ -185,161 +218,14 @@ export default async function RevisarEntryPage({
             </p>
           </div>
 
-          <form action={submitReview} className="space-y-4">
-            <input type="hidden" name="id" value={entry.id} />
-
-            <div>
-              <label
-                htmlFor="transcript"
-                className="mb-2 block text-sm font-medium"
-              >
-                Transcrição
-              </label>
-              <textarea
-                id="transcript"
-                name="transcript"
-                defaultValue={entry.transcript ?? ''}
-                rows={5}
-                className={ui.input.textarea}
-                placeholder="Opcional. Se o processamento falhar, você pode deixar em branco e preencher os campos manualmente."
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="entry_type"
-                className="mb-2 block text-sm font-medium"
-              >
-                Tipo de lançamento
-              </label>
-              <select
-                id="entry_type"
-                name="entry_type"
-                defaultValue={entry.entry_type ?? ''}
-                className={ui.input.select}
-              >
-                <option value="">Selecione</option>
-                <option value="sale_received">Venda recebida</option>
-                <option value="sale_due">Venda a receber</option>
-                <option value="expense_paid">Despesa paga</option>
-                <option value="expense_due">Despesa a pagar</option>
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="description"
-                className="mb-2 block text-sm font-medium"
-              >
-                Descrição
-              </label>
-              <input
-                id="description"
-                name="description"
-                type="text"
-                defaultValue={entry.description ?? ''}
-                className={ui.input.text}
-                placeholder="Ex.: Serviço de instalação"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="counterparty_name"
-                className="mb-2 block text-sm font-medium"
-              >
-                Cliente / fornecedor
-              </label>
-              <input
-                id="counterparty_name"
-                name="counterparty_name"
-                type="text"
-                defaultValue={entry.counterparty_name ?? ''}
-                className={ui.input.text}
-                placeholder="Ex.: João"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="amount"
-                className="mb-2 block text-sm font-medium"
-              >
-                Valor
-              </label>
-              <input
-                id="amount"
-                name="amount"
-                type="text"
-                defaultValue={entry.amount?.toString() ?? ''}
-                className={ui.input.text}
-                placeholder="Ex.: 250.00"
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="occurred_on"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Data do fato
-                </label>
-                <input
-                  id="occurred_on"
-                  name="occurred_on"
-                  type="date"
-                  defaultValue={entry.occurred_on ?? ''}
-                  className={ui.input.text}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="due_on"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Data de vencimento
-                </label>
-                <input
-                  id="due_on"
-                  name="due_on"
-                  type="date"
-                  defaultValue={entry.due_on ?? ''}
-                  className={ui.input.text}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 pt-2">
-              <button
-                type="submit"
-                name="intent"
-                value="save"
-                className={ui.button.secondary}
-              >
-                Salvar para depois
-              </button>
-
-              <button
-                type="submit"
-                name="intent"
-                value="confirm"
-                className={ui.button.primary}
-              >
-                Confirmar lançamento
-              </button>
-
-              <button
-                type="submit"
-                name="intent"
-                value="discard"
-                className={ui.button.danger}
-              >
-                Descartar lançamento
-              </button>
-            </div>
-          </form>
+          <FinancialEntryForm
+            action={formAction}
+            entry={entry}
+            mode={isEditMode ? 'edit' : 'review'}
+            cancelHref={backHref}
+            returnTo={isEditMode ? safeReturnTo : undefined}
+            showSettlementFields={showSettlementFields}
+          />
         </div>
 
         <div className="rounded-2xl border p-6">

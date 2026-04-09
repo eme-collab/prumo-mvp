@@ -35,6 +35,55 @@ export async function undoToastAction(input: {
   const expectedReviewStatus =
     input.undo === 'undo_review_confirm' ? 'confirmed' : 'discarded'
 
+  if (input.undo === 'undo_settlement_confirm') {
+    const { data: settlementEntry, error: settlementEntryError } = await supabase
+      .from('financial_entries')
+      .select('id, entry_type, review_status, settlement_status, user_id')
+      .eq('id', input.entryId)
+      .maybeSingle()
+
+    if (settlementEntryError) {
+      throw new Error(settlementEntryError.message)
+    }
+
+    if (
+      !settlementEntry ||
+      settlementEntry.user_id !== user.id ||
+      settlementEntry.review_status !== 'confirmed' ||
+      settlementEntry.settlement_status !== 'settled' ||
+      (settlementEntry.entry_type !== 'sale_due' &&
+        settlementEntry.entry_type !== 'expense_due')
+    ) {
+      return { redirectTo: '/painel' }
+    }
+
+    const { error: updateSettlementError } = await supabase
+      .from('financial_entries')
+      .update({
+        settlement_status: 'open',
+        settled_on: null,
+        settled_amount: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.entryId)
+      .eq('settlement_status', 'settled')
+
+    if (updateSettlementError) {
+      throw new Error(updateSettlementError.message)
+    }
+
+    revalidatePath('/painel')
+    revalidatePath('/resumo')
+    revalidatePath(`/revisar/${input.entryId}`)
+    revalidatePath(`/liquidar/${input.entryId}`)
+
+    return {
+      redirectTo: buildToastHref('/painel', {
+        kind: 'settlement_reopened',
+      }),
+    }
+  }
+
   if (entry.review_status !== expectedReviewStatus) {
     return { redirectTo: '/painel' }
   }

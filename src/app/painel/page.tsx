@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import AudioCaptureCard from '@/components/audio-capture-card'
 import DashboardCollapsibleCard from '@/components/dashboard-collapsible-card'
 import InstallAppCard from '@/components/install-app-card'
+import QuickConfirmPendingButton from '@/components/quick-confirm-pending-button'
 import {
   compareOpenAccountsByUrgency,
   getEntryTypeLabel,
@@ -12,7 +13,11 @@ import {
 import { formatCurrency } from '@/lib/month-period'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
-import { signOut } from './actions'
+import {
+  quickConfirmPendingEntry,
+  quickSettleOpenAccount,
+  signOut,
+} from './actions'
 
 function getPendingCardClass(
   readyCount: number,
@@ -74,12 +79,36 @@ function getPendingActionLabel(processingStatus: string | null | undefined) {
   return 'Revisar lançamento'
 }
 
-function getOpenAccountReviewLabel(entryType: 'sale_due' | 'expense_due') {
-  if (entryType === 'sale_due') {
-    return 'Revisar recebimento'
-  }
+function canQuickConfirmPendingEntry(entry: {
+  source: string | null | undefined
+  processing_status: string | null | undefined
+  transcript: string | null | undefined
+  entry_type: string | null | undefined
+  amount: number | null | undefined
+}) {
+  return (
+    entry.source === 'voice' &&
+    entry.processing_status === 'ready' &&
+    !!entry.transcript &&
+    !!entry.entry_type &&
+    entry.amount !== null
+  )
+}
 
-  return 'Revisar pagamento'
+function getOpenAccountReviewLabel() {
+  return 'Revisar'
+}
+
+function canQuickSettleOpenAccount(entry: {
+  settlement_status: string | null | undefined
+  entry_type: string | null | undefined
+  amount: number | null | undefined
+}) {
+  return (
+    entry.settlement_status === 'open' &&
+    (entry.entry_type === 'sale_due' || entry.entry_type === 'expense_due') &&
+    entry.amount !== null
+  )
 }
 
 function getOpenAccountQuickActionLabel(entryType: 'sale_due' | 'expense_due') {
@@ -347,12 +376,21 @@ export default async function PainelPage() {
                         </div>
                       )}
 
-                      <Link
-                        href={`/revisar/${entry.id}`}
-                        className={`mt-3 ${ui.button.neutral}`}
-                      >
-                        {getPendingActionLabel(entry.processing_status)}
-                      </Link>
+                      <div className="mt-3 flex items-center gap-2">
+                        <Link
+                          href={`/revisar/${entry.id}`}
+                          className={ui.button.neutral}
+                        >
+                          {getPendingActionLabel(entry.processing_status)}
+                        </Link>
+
+                        {canQuickConfirmPendingEntry(entry) && (
+                          <form action={quickConfirmPendingEntry}>
+                            <input type="hidden" name="id" value={entry.id} />
+                            <QuickConfirmPendingButton />
+                          </form>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -522,12 +560,27 @@ export default async function PainelPage() {
                           </span>
                         </div>
 
-                        <Link
-                          href={`/liquidar/${entry.id}`}
-                          className={`mt-3 ${ui.button.neutral}`}
-                        >
-                          {getOpenAccountReviewLabel('sale_due')}
-                        </Link>
+                        <div className="mt-3 flex items-center gap-2">
+                          <Link
+                            href={`/liquidar/${entry.id}`}
+                            className={ui.button.neutral}
+                          >
+                            {getOpenAccountReviewLabel()}
+                          </Link>
+
+                          {canQuickSettleOpenAccount({
+                            ...entry,
+                            entry_type: 'sale_due',
+                          }) && (
+                            <form action={quickSettleOpenAccount}>
+                              <input type="hidden" name="id" value={entry.id} />
+                              <QuickConfirmPendingButton
+                                idleLabel="Confirmar recebimento"
+                                armedLabel="Toque de novo para confirmar recebimento"
+                              />
+                            </form>
+                          )}
+                        </div>
                       </li>
                     )
                   })}
@@ -567,12 +620,27 @@ export default async function PainelPage() {
                           </span>
                         </div>
 
-                        <Link
-                          href={`/liquidar/${entry.id}`}
-                          className={`mt-3 ${ui.button.neutral}`}
-                        >
-                          {getOpenAccountReviewLabel('expense_due')}
-                        </Link>
+                        <div className="mt-3 flex items-center gap-2">
+                          <Link
+                            href={`/liquidar/${entry.id}`}
+                            className={ui.button.neutral}
+                          >
+                            {getOpenAccountReviewLabel()}
+                          </Link>
+
+                          {canQuickSettleOpenAccount({
+                            ...entry,
+                            entry_type: 'expense_due',
+                          }) && (
+                            <form action={quickSettleOpenAccount}>
+                              <input type="hidden" name="id" value={entry.id} />
+                              <QuickConfirmPendingButton
+                                idleLabel="Confirmar pagamento"
+                                armedLabel="Toque de novo para confirmar pagamento"
+                              />
+                            </form>
+                          )}
+                        </div>
                       </li>
                     )
                   })}

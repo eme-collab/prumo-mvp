@@ -8,13 +8,19 @@ export type GlobalToastKind =
   | 'entry_confirmed'
   | 'entry_discarded'
   | 'entry_saved'
+  | 'entry_updated'
+  | 'entry_deleted'
   | 'receipt_confirmed'
   | 'payment_confirmed'
   | 'manual_confirmed'
   | 'manual_pending'
   | 'entry_reopened'
+  | 'settlement_reopened'
 
-export type GlobalToastUndo = 'undo_review_confirm' | 'undo_review_discard'
+export type GlobalToastUndo =
+  | 'undo_review_confirm'
+  | 'undo_review_discard'
+  | 'undo_settlement_confirm'
 
 type GlobalToastDefinition = {
   message: string
@@ -31,13 +37,21 @@ const TOAST_DEFINITIONS: Record<GlobalToastKind, GlobalToastDefinition> = {
     undoLabel: 'Desfazer',
   },
   entry_saved: {
-    message: 'Alterações salvas.',
+    message: 'Lançamento salvo para depois.',
+  },
+  entry_updated: {
+    message: 'Movimentação atualizada.',
+  },
+  entry_deleted: {
+    message: 'Movimentação excluída.',
   },
   receipt_confirmed: {
     message: 'Recebimento confirmado.',
+    undoLabel: 'Desfazer',
   },
   payment_confirmed: {
     message: 'Pagamento confirmado.',
+    undoLabel: 'Desfazer',
   },
   manual_confirmed: {
     message: 'Lançamento confirmado.',
@@ -48,6 +62,9 @@ const TOAST_DEFINITIONS: Record<GlobalToastKind, GlobalToastDefinition> = {
   entry_reopened: {
     message: 'Lançamento voltou para pendentes.',
   },
+  settlement_reopened: {
+    message: 'Conta voltou para em aberto.',
+  },
 }
 
 function isGlobalToastKind(value: string | null): value is GlobalToastKind {
@@ -55,7 +72,11 @@ function isGlobalToastKind(value: string | null): value is GlobalToastKind {
 }
 
 function isGlobalToastUndo(value: string | null): value is GlobalToastUndo {
-  return value === 'undo_review_confirm' || value === 'undo_review_discard'
+  return (
+    value === 'undo_review_confirm' ||
+    value === 'undo_review_discard' ||
+    value === 'undo_settlement_confirm'
+  )
 }
 
 export function buildToastHref(

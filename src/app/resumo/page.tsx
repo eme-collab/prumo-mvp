@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import DeleteEntryButton from '@/components/delete-entry-button'
 import NotificationPreferencesCard from '@/components/notification-preferences-card'
+import { deleteResumoEntry } from '@/app/resumo/actions'
+import { buildResumoEditHref, buildResumoHref } from '@/lib/resumo-navigation'
 import { formatCurrency, getMonthPeriod } from '@/lib/month-period'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
@@ -26,6 +29,63 @@ type OpenDueEntry = {
   counterparty_name: string | null
   amount: number | null
   due_on: string | null
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 13.5 13 4a2.12 2.12 0 1 1 3 3l-9.5 9.5-3.5.5Z" />
+      <path d="m11.5 5.5 3 3" />
+    </svg>
+  )
+}
+
+function EditEntryLink({
+  entryId,
+  returnTo,
+}: {
+  entryId: string
+  returnTo: string
+}) {
+  return (
+    <Link
+      href={buildResumoEditHref({ entryId, returnTo })}
+      className={ui.button.icon}
+      aria-label="Editar movimentação"
+      title="Editar movimentação"
+    >
+      <PencilIcon />
+    </Link>
+  )
+}
+
+function EntryActionButtons({
+  entryId,
+  returnTo,
+}: {
+  entryId: string
+  returnTo: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <EditEntryLink entryId={entryId} returnTo={returnTo} />
+
+      <form action={deleteResumoEntry}>
+        <input type="hidden" name="id" value={entryId} />
+        <input type="hidden" name="return_to" value={returnTo} />
+        <DeleteEntryButton />
+      </form>
+    </div>
+  )
 }
 
 function sumAmounts(entries: Array<{ amount: number | null }> | null | undefined) {
@@ -166,17 +226,20 @@ export default async function ResumoPage({
   const receivableTotal = sumAmounts(receivableOpenEntries)
   const payableTotal = sumAmounts(payableOpenEntries)
   const confirmedBalance = receivedTotal - paidTotal
+  const resumoReturnTo = buildResumoHref(period.monthValue)
 
   const receivedEntries = [
     ...receivedCashEntries.map((entry) => ({
-      id: `cash-${entry.id}`,
+      key: `cash-${entry.id}`,
+      entryId: entry.id,
       description: entry.description,
       amount: entry.amount ?? 0,
       date: entry.occurred_on,
       label: 'Recebido à vista',
     })),
     ...receivedSettledEntries.map((entry) => ({
-      id: `settled-${entry.id}`,
+      key: `settled-${entry.id}`,
+      entryId: entry.id,
       description: entry.description,
       amount: entry.settled_amount ?? entry.amount ?? 0,
       date: entry.settled_on,
@@ -186,14 +249,16 @@ export default async function ResumoPage({
 
   const paidEntries = [
     ...paidCashEntries.map((entry) => ({
-      id: `cash-${entry.id}`,
+      key: `cash-${entry.id}`,
+      entryId: entry.id,
       description: entry.description,
       amount: entry.amount ?? 0,
       date: entry.occurred_on,
       label: 'Pago à vista',
     })),
     ...paidSettledEntries.map((entry) => ({
-      id: `settled-${entry.id}`,
+      key: `settled-${entry.id}`,
+      entryId: entry.id,
       description: entry.description,
       amount: entry.settled_amount ?? entry.amount ?? 0,
       date: entry.settled_on,
@@ -300,17 +365,28 @@ export default async function ResumoPage({
             ) : (
               <ul className="mt-4 space-y-3">
                 {receivedEntries.map((entry) => (
-                  <li key={entry.id} className={ui.card.muted}>
-                    <p className={ui.text.strong}>
-                      {entry.description ?? 'Sem descrição'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>Tipo: {entry.label}</p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Valor: {formatCurrency(entry.amount)}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Data: {entry.date ?? '-'}
-                    </p>
+                  <li key={entry.key} className={ui.card.muted}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={ui.text.strong}>
+                          {entry.description ?? 'Sem descrição'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Tipo: {entry.label}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Valor: {formatCurrency(entry.amount)}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Data: {entry.date ?? '-'}
+                        </p>
+                      </div>
+
+                      <EntryActionButtons
+                        entryId={entry.entryId}
+                        returnTo={resumoReturnTo}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -340,17 +416,28 @@ export default async function ResumoPage({
             ) : (
               <ul className="mt-4 space-y-3">
                 {paidEntries.map((entry) => (
-                  <li key={entry.id} className={ui.card.muted}>
-                    <p className={ui.text.strong}>
-                      {entry.description ?? 'Sem descrição'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>Tipo: {entry.label}</p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Valor: {formatCurrency(entry.amount)}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Data: {entry.date ?? '-'}
-                    </p>
+                  <li key={entry.key} className={ui.card.muted}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={ui.text.strong}>
+                          {entry.description ?? 'Sem descrição'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Tipo: {entry.label}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Valor: {formatCurrency(entry.amount)}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Data: {entry.date ?? '-'}
+                        </p>
+                      </div>
+
+                      <EntryActionButtons
+                        entryId={entry.entryId}
+                        returnTo={resumoReturnTo}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -383,18 +470,27 @@ export default async function ResumoPage({
               <ul className="mt-4 space-y-3">
                 {receivableOpenEntries.map((entry) => (
                   <li key={entry.id} className={ui.card.muted}>
-                    <p className={ui.text.strong}>
-                      {entry.description ?? 'Sem descrição'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Contraparte: {entry.counterparty_name ?? '-'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Valor: {formatCurrency(entry.amount ?? 0)}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Vencimento: {entry.due_on ?? '-'}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={ui.text.strong}>
+                          {entry.description ?? 'Sem descrição'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Contraparte: {entry.counterparty_name ?? '-'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Valor: {formatCurrency(entry.amount ?? 0)}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Vencimento: {entry.due_on ?? '-'}
+                        </p>
+                      </div>
+
+                      <EntryActionButtons
+                        entryId={entry.id}
+                        returnTo={resumoReturnTo}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -427,18 +523,27 @@ export default async function ResumoPage({
               <ul className="mt-4 space-y-3">
                 {payableOpenEntries.map((entry) => (
                   <li key={entry.id} className={ui.card.muted}>
-                    <p className={ui.text.strong}>
-                      {entry.description ?? 'Sem descrição'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Contraparte: {entry.counterparty_name ?? '-'}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Valor: {formatCurrency(entry.amount ?? 0)}
-                    </p>
-                    <p className={`mt-1 ${ui.text.subtle}`}>
-                      Vencimento: {entry.due_on ?? '-'}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={ui.text.strong}>
+                          {entry.description ?? 'Sem descrição'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Contraparte: {entry.counterparty_name ?? '-'}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Valor: {formatCurrency(entry.amount ?? 0)}
+                        </p>
+                        <p className={`mt-1 ${ui.text.subtle}`}>
+                          Vencimento: {entry.due_on ?? '-'}
+                        </p>
+                      </div>
+
+                      <EntryActionButtons
+                        entryId={entry.id}
+                        returnTo={resumoReturnTo}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>
