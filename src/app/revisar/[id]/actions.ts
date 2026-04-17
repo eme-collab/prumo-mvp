@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import {
@@ -9,6 +10,9 @@ import {
 } from '@/lib/global-toast'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
 import { createClient } from '@/lib/supabase/server'
+import {
+  finalizeFirstCaptureUnlock,
+} from '@/lib/user-app-state'
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
@@ -145,6 +149,7 @@ function buildReviewEditErrorHref(input: {
 
 export async function submitReview(formData: FormData) {
   const supabase = await createClient()
+  const cookieStore = await cookies()
 
   const {
     data: { user },
@@ -158,6 +163,20 @@ export async function submitReview(formData: FormData) {
   const intent = getString(formData, 'intent')
 
   if (!id) {
+    redirect('/painel')
+  }
+
+  const { data: currentEntry, error: currentEntryError } = await supabase
+    .from('financial_entries')
+    .select('id, user_id, source')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (currentEntryError) {
+    throw new Error(currentEntryError.message)
+  }
+
+  if (!currentEntry || currentEntry.user_id !== user.id) {
     redirect('/painel')
   }
 
@@ -223,9 +242,27 @@ export async function submitReview(formData: FormData) {
       throw new Error(error.message)
     }
 
+    const firstCaptureUnlock = await finalizeFirstCaptureUnlock({
+      supabase,
+      userId: user.id,
+      source: currentEntry.source,
+      cookieStore,
+    })
+
     revalidatePath('/painel')
     revalidatePath('/resumo')
+    revalidatePath(`/revisar/${id}`)
     revalidatePath(`/liquidar/${id}`)
+
+    if (firstCaptureUnlock.shouldRedirectToUnlockedPanel) {
+      redirect(
+        buildToastHref('/painel', {
+          kind: 'first_capture_confirmed',
+          entryId: id,
+        })
+      )
+    }
+
     await redirectToNextPendingOrPanel({
       currentId: id,
       toastKind: 'entry_confirmed',

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import InstallAppCard from '@/components/install-app-card'
 import { createClient } from '@/lib/supabase/client'
 import { ui } from '@/lib/ui'
 
@@ -42,15 +43,14 @@ export default function LoginClient() {
       setLoading(false)
     }
   }
-
-
-
   return (
     <main className={ui.page.authShell}>
       <div className="mx-auto max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Entrar no Prumo</h1>
+        <h1 className="text-2xl font-semibold">
+          Nunca mais esqueça um gasto ou cobrança
+        </h1>
         <p className={`mt-2 ${ui.text.muted}`}>
-          Use sua conta Google para abrir o painel.
+          Entre com Google em 1 clique e comece a gravar.
         </p>
 
         {urlErrorMessage && (
@@ -74,9 +74,16 @@ export default function LoginClient() {
           {loading ? 'Entrando...' : 'Entrar com Google'}
         </button>
 
-        <p className={`mt-3 text-center ${ui.text.subtle}`}>
-          Acesso simples e direto.
-        </p>
+        <div className="mt-5">
+          <InstallAppCard
+            presentation="inline"
+            requirePrompt
+            showDismissAction={false}
+            title="Use o Prumo como app no seu celular"
+            subtitle="Instale agora e acesse mais rápido depois."
+            installLabel="Instalar aplicativo"
+          />
+        </div>
       </div>
     </main>
   )

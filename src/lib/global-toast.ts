@@ -10,6 +10,7 @@ export type GlobalToastKind =
   | 'entry_saved'
   | 'entry_updated'
   | 'entry_deleted'
+  | 'first_capture_confirmed'
   | 'receipt_confirmed'
   | 'payment_confirmed'
   | 'manual_confirmed'
@@ -44,6 +45,9 @@ const TOAST_DEFINITIONS: Record<GlobalToastKind, GlobalToastDefinition> = {
   },
   entry_deleted: {
     message: 'Movimentação excluída.',
+  },
+  first_capture_confirmed: {
+    message: 'Pronto. Ficou salvo.',
   },
   receipt_confirmed: {
     message: 'Recebimento confirmado.',

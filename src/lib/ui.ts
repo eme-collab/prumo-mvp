@@ -4,6 +4,7 @@ export const ui = {
       'min-h-[100dvh] bg-neutral-50 px-4 pb-[calc(1rem+var(--safe-area-bottom))] pt-[calc(1rem+var(--safe-area-top))] md:p-8',
     container: 'mx-auto max-w-5xl space-y-4',
     containerNarrow: 'mx-auto max-w-3xl space-y-6',
+    containerZen: 'mx-auto max-w-xl space-y-5',
     authShell:
       'min-h-[100dvh] bg-neutral-50 px-4 pb-[calc(1rem+var(--safe-area-bottom))] pt-[calc(1rem+var(--safe-area-top))] md:p-8',
   },
@@ -16,6 +17,8 @@ export const ui = {
       'rounded-2xl border border-sky-200 bg-sky-50 p-5 md:p-6 shadow-sm',
     primaryCompact:
       'rounded-2xl border border-sky-200 bg-sky-50 p-4 md:p-5 shadow-sm',
+    zen:
+      'rounded-3xl border border-sky-200 bg-white px-5 py-6 shadow-sm md:px-6',
     success:
       'rounded-2xl border border-green-200 bg-green-50 p-4 shadow-sm',
     warning:
@@ -37,6 +40,7 @@ export const ui = {
     muted: 'text-sm text-neutral-600',
     subtle: 'text-xs text-neutral-500',
     helper: 'text-xs text-neutral-600',
+    zenLead: 'text-base font-medium text-neutral-900',
     strong: 'font-medium text-neutral-900',
   },
 

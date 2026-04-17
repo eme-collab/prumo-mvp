@@ -31,6 +31,7 @@ Este é o núcleo do Prumo. Se esta parte falhar, a release não está pronta.
 - [ ] O usuário consegue entrar no app
 - [ ] O redirecionamento após login funciona
 - [ ] O estado autenticado está consistente
+- [ ] O bloco de instalação pré-login só aparece quando houver condição técnica real de instalação e o app não estiver instalado
 
 ## Gravação
 - [ ] O botão de gravação funciona
@@ -57,6 +58,8 @@ Este é o núcleo do Prumo. Se esta parte falhar, a release não está pronta.
 - [ ] O usuário consegue confirmar o lançamento
 - [ ] O lançamento confirmado sai do fluxo de pendentes
 - [ ] O sistema leva ao próximo pendente, se existir
+- [ ] O primeiro lançamento confirmado por voz encerra o Modo Zen e libera o painel normal
+- [ ] O feedback “Pronto. Ficou salvo.” aparece sem entrar em loop
 
 ## Descarte
 - [ ] O usuário consegue descartar um lançamento
@@ -81,6 +84,20 @@ Esses fluxos não podem ser ignorados porque afetam confiança.
 - [ ] Quando não há mais pendentes, o sistema informa isso com clareza
 - [ ] O usuário não fica preso em tela inconsistente
 - [ ] O redirecionamento final faz sentido
+
+## Modo Zen
+- [ ] Conta com flag ausente ou `false` entra no Modo Zen
+- [ ] Durante o Modo Zen, Resumo, Manual, cards secundários e card de instalação do painel não aparecem
+- [ ] Apenas gravar/processar sem confirmar não libera o painel normal
+- [ ] Descartar um lançamento não libera o painel normal
+- [ ] Fluxo manual não encerra o Modo Zen
+- [ ] Quick confirm elegível usa a mesma regra oficial de desbloqueio do fluxo canônico
+- [ ] O feedback de primeiro desbloqueio aparece uma vez e não reaparece em refresh posterior
+- [ ] Com `PRUMO_ENABLE_FIRST_CAPTURE_DEBUG=true` fora de produção, o bloco interno de validação aparece apenas no painel
+- [ ] No bloco de validação, `Flag remota false` + `Limpar cookie local` reproduzem o estado equivalente a linha ausente para o gate
+- [ ] Se `SUPABASE_SERVICE_ROLE_KEY` estiver disponível localmente, `Remover linha remota` realmente apaga `user_app_state` do usuário atual
+- [ ] Com `Ativar falha remota`, a confirmação por voz continua funcionando, o painel normal permanece liberado na mesma sessão e o cookie local aparece
+- [ ] Depois de `Desativar falha remota` e recarregar o painel, o retry remoto estabiliza a flag e limpa o cookie local
 
 ---
 

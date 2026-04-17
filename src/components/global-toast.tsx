@@ -121,7 +121,7 @@ export default function GlobalToast() {
   const search = searchParams.toString()
   const toast = getGlobalToastFromSearchParams(searchParams)
 
-  if (!toast) {
+  if (!toast || toast.kind === 'first_capture_confirmed') {
     return null
   }
 

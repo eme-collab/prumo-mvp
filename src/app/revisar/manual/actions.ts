@@ -5,6 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { buildToastHref } from '@/lib/global-toast'
 import { createClient } from '@/lib/supabase/server'
 
+// Fluxos manuais nao encerram o Modo Zen. A flag oficial so pode mudar
+// depois da confirmacao final de um lancamento com source = 'voice'.
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
   return typeof value === 'string' ? value.trim() : ''

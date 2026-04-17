@@ -140,4 +140,4 @@ Antes de desenvolver qualquer item deste backlog, a tarefa deve ser reescrita em
 Mover para esta seção somente tarefas realmente fechadas e validadas.
 
 ## Concluídos
-- [ ] Nenhum item registrado ainda neste documento
+- [x] Etapa 1 do Modo Zen fechada no fluxo principal: gate por `has_completed_first_capture`, desbloqueio só após confirmação final por voz, fallback local por cookie de sessão e painel normal liberado sem retorno ao Zen na mesma sessão

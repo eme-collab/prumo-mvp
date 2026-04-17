@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ui } from '@/lib/ui'
 
-const ROTATING_HINTS = [
+const DEFAULT_ROTATING_HINTS = [
   'Exemplo: Recebi 250 reais do cliente João hoje.',
   'Exemplo: Vendi 300 reais para Maria e ela vai pagar em 15 dias.',
   'Exemplo: Paguei 110 reais e 20 centavos de internet hoje.',
@@ -14,12 +14,19 @@ const ROTATING_HINTS = [
   'Exemplo: Comprei 36 reais e 80 centavos na quitanda pra pagar dia 5 do mês que vem.',
 ]
 
-function MicrophoneIcon() {
+type AudioCaptureCardProps = {
+  mode?: 'default' | 'zen'
+  rotatingHints?: string[]
+  primarySupportText?: string
+  secondarySupportText?: string
+}
+
+function MicrophoneIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-5 w-5"
+      className={className}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -69,7 +76,12 @@ function formatRecordingTime(totalSeconds: number) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-export default function AudioCaptureCard() {
+export default function AudioCaptureCard({
+  mode = 'default',
+  rotatingHints = DEFAULT_ROTATING_HINTS,
+  primarySupportText,
+  secondarySupportText,
+}: AudioCaptureCardProps) {
   const router = useRouter()
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -86,6 +98,8 @@ export default function AudioCaptureCard() {
   const [queueMessage, setQueueMessage] = useState<string | null>(null)
   const [lastEntryId, setLastEntryId] = useState<string | null>(null)
   const [rotatingHintIndex, setRotatingHintIndex] = useState(0)
+  const safeRotatingHints =
+    rotatingHints.length > 0 ? rotatingHints : DEFAULT_ROTATING_HINTS
 
   function stopCurrentStream() {
     if (streamRef.current) {
@@ -126,8 +140,10 @@ export default function AudioCaptureCard() {
   }
 
   useEffect(() => {
+    setRotatingHintIndex(0)
+
     rotatingHintIntervalRef.current = window.setInterval(() => {
-      setRotatingHintIndex((current) => (current + 1) % ROTATING_HINTS.length)
+      setRotatingHintIndex((current) => (current + 1) % safeRotatingHints.length)
     }, 3500)
 
     return () => {
@@ -135,7 +151,7 @@ export default function AudioCaptureCard() {
       stopRecordingTimer()
       stopRotatingHints()
     }
-  }, [])
+  }, [safeRotatingHints.length])
 
   async function runBackgroundProcessing(entryId: string) {
     try {
@@ -347,20 +363,45 @@ export default function AudioCaptureCard() {
     return 'Fale um lançamento por vez.'
   }
 
+  const isZenMode = mode === 'zen'
+  const cardClassName = isZenMode ? ui.card.zen : ui.card.primaryCompact
+  const mainButtonClassName = isZenMode
+    ? `flex w-full items-center justify-center gap-3 rounded-3xl px-5 py-5 text-base font-semibold transition ${
+        isSubmittingCapture
+          ? 'cursor-not-allowed bg-sky-400 text-white opacity-70'
+          : isRecording
+            ? 'bg-sky-700 text-white hover:bg-sky-800 active:scale-[0.99]'
+            : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-[0.99]'
+      }`
+    : `flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-base font-semibold transition ${
+        isSubmittingCapture
+          ? 'cursor-not-allowed bg-sky-400 text-white opacity-70'
+          : isRecording
+            ? 'bg-sky-700 text-white hover:bg-sky-800 active:scale-[0.99]'
+            : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-[0.99]'
+      }`
+  const microphoneIconClassName = isZenMode ? 'h-6 w-6' : 'h-5 w-5'
+
   return (
-    <div className={ui.card.primaryCompact}>
+    <div className={cardClassName}>
       <div>
         <h2 className={ui.text.cardTitle}>Gravar lançamento</h2>
+        {primarySupportText && (
+          <p className={`mt-3 ${ui.text.zenLead}`}>{primarySupportText}</p>
+        )}
+        {secondarySupportText && (
+          <p className={`mt-2 ${ui.text.muted}`}>{secondarySupportText}</p>
+        )}
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/80 px-4 py-3">
+      <div className="mt-4 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/80 px-4 py-3">
         <div className="flex h-14 items-center">
           <p
             key={rotatingHintIndex}
             aria-live="polite"
             className="text-sm leading-5 text-sky-800 transition-opacity duration-300"
           >
-            {ROTATING_HINTS[rotatingHintIndex]}
+            {safeRotatingHints[rotatingHintIndex] ?? safeRotatingHints[0] ?? ''}
           </p>
         </div>
       </div>
@@ -370,19 +411,15 @@ export default function AudioCaptureCard() {
           type="button"
           onClick={handleMainButtonClick}
           disabled={isSubmittingCapture}
-          className={`flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-base font-semibold transition ${
-            isSubmittingCapture
-              ? 'cursor-not-allowed bg-sky-400 text-white opacity-70'
-              : isRecording
-                ? 'bg-sky-700 text-white hover:bg-sky-800 active:scale-[0.99]'
-                : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-[0.99]'
-          }`}
+          className={mainButtonClassName}
         >
           {isSubmittingCapture && (
             <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
           )}
 
-          {!isSubmittingCapture && <MicrophoneIcon />}
+          {!isSubmittingCapture && (
+            <MicrophoneIcon className={microphoneIconClassName} />
+          )}
 
           <span>{getMainButtonLabel()}</span>
 

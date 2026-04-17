@@ -1,14 +1,216 @@
 'use server'
 
+import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { buildToastHref } from '@/lib/global-toast'
 import { createClient } from '@/lib/supabase/server'
+import {
+  clearFirstCapturePersistFailureSimulation,
+  clearFirstCaptureLocalMirror,
+  finalizeFirstCaptureUnlock,
+  isFirstCaptureValidationModeEnabled,
+  setFirstCapturePersistFailureSimulation,
+  setRemoteFirstCaptureState,
+} from '@/lib/user-app-state'
 
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')
+}
+
+export async function clearFirstCaptureLocalMirrorAction() {
+  const cookieStore = await cookies()
+
+  clearFirstCaptureLocalMirror(cookieStore, {
+    swallowWriteError: true,
+  })
+}
+
+export type FirstCaptureValidationActionState = {
+  status: 'idle' | 'success' | 'error'
+  message: string | null
+  refreshToken: number
+}
+
+export const INITIAL_FIRST_CAPTURE_VALIDATION_ACTION_STATE: FirstCaptureValidationActionState =
+  {
+    status: 'idle',
+    message: null,
+    refreshToken: 0,
+  }
+
+function buildFirstCaptureValidationActionState(
+  status: FirstCaptureValidationActionState['status'],
+  message: string
+): FirstCaptureValidationActionState {
+  return {
+    status,
+    message,
+    refreshToken: Date.now(),
+  }
+}
+
+function createFirstCaptureDebugAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null
+  }
+
+  return createSupabaseAdminClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+}
+
+export async function runFirstCaptureValidationAction(
+  _previousState: FirstCaptureValidationActionState,
+  formData: FormData
+): Promise<FirstCaptureValidationActionState> {
+  if (!isFirstCaptureValidationModeEnabled()) {
+    return buildFirstCaptureValidationActionState(
+      'error',
+      'Modo de validação desativado neste ambiente.'
+    )
+  }
+
+  const supabase = await createClient()
+  const cookieStore = await cookies()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return buildFirstCaptureValidationActionState(
+      'error',
+      'Sessão expirada. Entre novamente para validar.'
+    )
+  }
+
+  const intent = getString(formData, 'intent')
+
+  switch (intent) {
+    case 'remote_true': {
+      const result = await setRemoteFirstCaptureState(supabase, user.id, true)
+
+      if (!result.persistedRemotely) {
+        return buildFirstCaptureValidationActionState(
+          'error',
+          result.errorMessage ?? 'Não foi possível marcar a flag remota como true.'
+        )
+      }
+
+      clearFirstCaptureLocalMirror(cookieStore, {
+        swallowWriteError: true,
+      })
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Flag remota marcada como true e espelho local limpo.'
+      )
+    }
+
+    case 'remote_false': {
+      const result = await setRemoteFirstCaptureState(supabase, user.id, false)
+
+      if (!result.persistedRemotely) {
+        return buildFirstCaptureValidationActionState(
+          'error',
+          result.errorMessage ?? 'Não foi possível marcar a flag remota como false.'
+        )
+      }
+
+      clearFirstCaptureLocalMirror(cookieStore, {
+        swallowWriteError: true,
+      })
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Flag remota marcada como false e espelho local limpo.'
+      )
+    }
+
+    case 'remote_absent': {
+      const adminClient = createFirstCaptureDebugAdminClient()
+
+      if (!adminClient) {
+        return buildFirstCaptureValidationActionState(
+          'error',
+          'Remoção da linha indisponível sem SUPABASE_SERVICE_ROLE_KEY no ambiente local.'
+        )
+      }
+
+      const { error } = await adminClient
+        .from('user_app_state')
+        .delete()
+        .eq('user_id', user.id)
+
+      if (error) {
+        return buildFirstCaptureValidationActionState(
+          'error',
+          error.message
+        )
+      }
+
+      clearFirstCaptureLocalMirror(cookieStore, {
+        swallowWriteError: true,
+      })
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Linha de user_app_state removida para o usuário atual e espelho local limpo.'
+      )
+    }
+
+    case 'clear_local_cookie': {
+      clearFirstCaptureLocalMirror(cookieStore, {
+        swallowWriteError: true,
+      })
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Espelho local do primeiro desbloqueio limpo.'
+      )
+    }
+
+    case 'simulate_fail_on': {
+      setFirstCapturePersistFailureSimulation(cookieStore)
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Simulação de falha remota ativada para a persistência da flag.'
+      )
+    }
+
+    case 'simulate_fail_off': {
+      clearFirstCapturePersistFailureSimulation(cookieStore, {
+        swallowWriteError: true,
+      })
+      revalidatePath('/painel')
+
+      return buildFirstCaptureValidationActionState(
+        'success',
+        'Simulação de falha remota desativada.'
+      )
+    }
+
+    default:
+      return buildFirstCaptureValidationActionState(
+        'error',
+        'Ação de validação não reconhecida.'
+      )
+  }
 }
 
 function getString(formData: FormData, key: string) {
@@ -63,6 +265,7 @@ function canQuickConfirmEntry(entry: {
 
 export async function quickConfirmPendingEntry(formData: FormData) {
   const supabase = await createClient()
+  const cookieStore = await cookies()
 
   const {
     data: { user },
@@ -108,10 +311,26 @@ export async function quickConfirmPendingEntry(formData: FormData) {
     throw new Error(error.message)
   }
 
+  const firstCaptureUnlock = await finalizeFirstCaptureUnlock({
+    supabase,
+    userId: user.id,
+    source: entry.source,
+    cookieStore,
+  })
+
   revalidatePath('/painel')
   revalidatePath('/resumo')
   revalidatePath(`/revisar/${id}`)
   revalidatePath(`/liquidar/${id}`)
+
+  if (firstCaptureUnlock.shouldRedirectToUnlockedPanel) {
+    redirect(
+      buildToastHref('/painel', {
+        kind: 'first_capture_confirmed',
+        entryId: id,
+      })
+    )
+  }
 
   redirect(
     buildToastHref('/painel', {

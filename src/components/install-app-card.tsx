@@ -11,6 +11,15 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
+type InstallAppCardProps = {
+  title?: string
+  subtitle?: string
+  installLabel?: string
+  presentation?: 'card' | 'inline'
+  requirePrompt?: boolean
+  showDismissAction?: boolean
+}
+
 function isStandaloneMode() {
   if (typeof window === 'undefined') return false
 
@@ -28,6 +37,21 @@ function isAppleMobile() {
   if (typeof window === 'undefined') return false
 
   return /iPad|iPhone|iPod/.test(window.navigator.userAgent)
+}
+
+function isSupportedAppleInstallBrowser() {
+  if (typeof window === 'undefined') return false
+
+  const userAgent = window.navigator.userAgent
+  const isSafari =
+    /Safari/.test(userAgent) &&
+    !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|YaBrowser/.test(userAgent)
+  const isSecureContextForInstall =
+    window.isSecureContext ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname.endsWith('.local')
+
+  return isAppleMobile() && isSafari && isSecureContextForInstall
 }
 
 function wasDismissedRecently() {
@@ -55,17 +79,24 @@ function wasDismissedRecently() {
   return isStillHidden
 }
 
-export default function InstallAppCard() {
+export default function InstallAppCard({
+  title = 'Instalar app',
+  subtitle = 'Abra o Prumo como app no celular.',
+  installLabel = 'Instalar',
+  presentation = 'card',
+  requirePrompt = false,
+  showDismissAction = true,
+}: InstallAppCardProps) {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null)
   const [isStandalone, setIsStandalone] = useState(true)
-  const [isApple, setIsApple] = useState(false)
+  const [isAppleInstallSupported, setIsAppleInstallSupported] = useState(false)
   const [isHidden, setIsHidden] = useState(true)
   const [isInstalling, setIsInstalling] = useState(false)
 
   useEffect(() => {
     setIsStandalone(isStandaloneMode())
-    setIsApple(isAppleMobile())
+    setIsAppleInstallSupported(isSupportedAppleInstallBrowser())
     setIsHidden(wasDismissedRecently())
 
     function handleBeforeInstallPrompt(event: Event) {
@@ -100,8 +131,18 @@ export default function InstallAppCard() {
       return false
     }
 
-    return Boolean(deferredPrompt) || isApple
-  }, [deferredPrompt, isApple, isHidden, isStandalone])
+    if (requirePrompt) {
+      return Boolean(deferredPrompt)
+    }
+
+    return Boolean(deferredPrompt) || isAppleInstallSupported
+  }, [
+    deferredPrompt,
+    isAppleInstallSupported,
+    isHidden,
+    isStandalone,
+    requirePrompt,
+  ])
 
   function dismissCard() {
     window.localStorage.setItem(DISMISS_KEY, String(Date.now()))
@@ -131,44 +172,53 @@ export default function InstallAppCard() {
     return null
   }
 
+  const isInline = presentation === 'inline'
+  const containerClassName = isInline ? 'border-t border-neutral-200 pt-4' : ui.card.muted
+
   return (
-    <div className={ui.card.muted}>
+    <div className={containerClassName}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className={ui.text.sectionTitle}>Instalar app</h2>
-          <p className={`mt-1 ${ui.text.subtle}`}>
-            Abra o Prumo como app no celular.
+          <h2 className={isInline ? 'text-sm font-semibold text-neutral-900' : ui.text.sectionTitle}>
+            {title}
+          </h2>
+          <p className={`mt-1 ${isInline ? ui.text.muted : ui.text.subtle}`}>
+            {subtitle}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={dismissCard}
-          className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-500 transition hover:bg-neutral-50"
-          aria-label="Dispensar instrução de instalação"
-        >
-          Agora não
-        </button>
+        {showDismissAction && (
+          <button
+            type="button"
+            onClick={dismissCard}
+            className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-500 transition hover:bg-neutral-50"
+            aria-label="Dispensar instrução de instalação"
+          >
+            Agora não
+          </button>
+        )}
       </div>
 
       {deferredPrompt ? (
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className={`mt-4 flex flex-wrap gap-3 ${isInline ? '' : ''}`}>
           <button
             type="button"
             onClick={handleInstallClick}
             disabled={isInstalling}
-            className={ui.button.neutral}
+            className={isInline ? `w-full ${ui.button.secondary}` : ui.button.neutral}
           >
-            {isInstalling ? 'Abrindo...' : 'Instalar'}
+            {isInstalling ? 'Abrindo...' : installLabel}
           </button>
 
-          <button
-            type="button"
-            onClick={dismissCard}
-            className={ui.button.neutral}
-          >
-            Depois
-          </button>
+          {showDismissAction && (
+            <button
+              type="button"
+              onClick={dismissCard}
+              className={ui.button.neutral}
+            >
+              Depois
+            </button>
+          )}
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-neutral-200 bg-white px-3 py-3">

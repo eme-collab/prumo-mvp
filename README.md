@@ -47,6 +47,13 @@ O foco atual é melhorar:
 - confiança na revisão;
 - consistência do fluxo principal.
 
+### Etapa 1 do Modo Zen
+- contas com `has_completed_first_capture = false`, ausente ou sem linha em `user_app_state` entram no Modo Zen;
+- o Modo Zen mostra apenas a ação principal de gravar e esconde resumo, entrada manual, cards secundários e card de instalação do painel;
+- o desbloqueio oficial acontece apenas depois da confirmação final de um lançamento com `source = 'voice'`;
+- confirmações manuais, descarte, revisão sem confirmar e gravação sem confirmação não encerram o Modo Zen;
+- se a persistência remota da flag falhar, um cookie de sessão mantém o painel normal liberado na mesma sessão e o painel tenta persistir novamente depois.
+
 ### Fase 1 de PWA app-like
 - metadata e branding reais do Prumo;
 - manifest via App Router;
@@ -148,6 +155,23 @@ O Prumo agora inclui a base da experiência PWA app-like:
 - componente de instalação exibido no painel quando o app ainda não está instalado.
 
 Para testar a instalação localmente, prefira HTTPS no desenvolvimento (`next dev --experimental-https`) e valide em um celular real.
+
+### Checklist manual minimo da Etapa 1
+1. Conta com `has_completed_first_capture = false` ou ausente entra no Modo Zen.
+2. Gravar ou abrir revisão sem confirmar não libera o painel normal.
+3. Descartar um pendente por voz não libera o painel normal.
+4. Confirmar por voz via revisão canônica libera o painel normal e mostra o feedback uma vez.
+5. Confirmar por voz via quick confirm libera o painel normal com o mesmo feedback.
+6. Confirmar ou salvar manualmente não libera o Modo Zen.
+7. Conta com `has_completed_first_capture = true` já entra no painel normal.
+
+#### Modo de validacao assistida da Etapa 1
+- ative apenas fora de producao com `PRUMO_ENABLE_FIRST_CAPTURE_DEBUG=true`;
+- com a flag ativa, o painel mostra um bloco colapsado `Validacao Etapa 1 — Modo Zen` so para o usuario autenticado atual;
+- o bloco permite marcar a flag remota como `true`, marcar como `false`, limpar o cookie local e ativar/desativar a simulacao de falha remota da persistencia;
+- se `SUPABASE_SERVICE_ROLE_KEY` estiver configurada localmente, o bloco tambem permite remover a linha de `user_app_state` do usuario atual para validar o caso realmente ausente;
+- para validar o fallback: ative `Ativar falha remota`, confirme um item por voz, verifique que o painel normal continua liberado com cookie local, depois desative a falha e recarregue o painel para observar o retry remoto e a limpeza do cookie;
+- no login, o bloco pre-login de instalacao continua aparecendo apenas quando o navegador realmente expuser `beforeinstallprompt`.
 
 #### Estratégia de cache da Fase 2
 - cachear apenas shell público e assets estáticos seguros;
