@@ -14,6 +14,7 @@ import {
   setFirstCapturePersistFailureSimulation,
   setRemoteFirstCaptureState,
 } from '@/lib/user-app-state'
+import type { FirstCaptureValidationActionState } from './first-capture-validation-state'
 
 export async function signOut() {
   const supabase = await createClient()
@@ -28,19 +29,6 @@ export async function clearFirstCaptureLocalMirrorAction() {
     swallowWriteError: true,
   })
 }
-
-export type FirstCaptureValidationActionState = {
-  status: 'idle' | 'success' | 'error'
-  message: string | null
-  refreshToken: number
-}
-
-export const INITIAL_FIRST_CAPTURE_VALIDATION_ACTION_STATE: FirstCaptureValidationActionState =
-  {
-    status: 'idle',
-    message: null,
-    refreshToken: 0,
-  }
 
 function buildFirstCaptureValidationActionState(
   status: FirstCaptureValidationActionState['status'],

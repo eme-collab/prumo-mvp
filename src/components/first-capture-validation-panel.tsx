@@ -3,8 +3,8 @@
 import { useActionState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFormStatus } from 'react-dom'
+import { INITIAL_FIRST_CAPTURE_VALIDATION_ACTION_STATE } from '@/app/painel/first-capture-validation-state'
 import {
-  INITIAL_FIRST_CAPTURE_VALIDATION_ACTION_STATE,
   runFirstCaptureValidationAction,
 } from '@/app/painel/actions'
 
