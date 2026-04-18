@@ -168,6 +168,11 @@ self.addEventListener('push', (event) => {
       tag: payload.tag || 'prumo-notification',
       data: {
         url: payload.url || '/painel',
+        notificationType: payload.notificationType || null,
+        itemType: payload.itemType || null,
+        itemStatus: payload.itemStatus || null,
+        itemId: payload.itemId || null,
+        deliveryId: payload.deliveryId || null,
       },
     })
   )

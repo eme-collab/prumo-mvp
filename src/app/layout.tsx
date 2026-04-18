@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Suspense } from 'react'
 import GlobalToast from '@/components/global-toast'
+import NotificationOpenTracker from '@/components/notification-open-tracker'
 import PwaBootstrap from '@/components/pwa-bootstrap'
 import './globals.css'
 
@@ -79,6 +80,7 @@ export default function RootLayout({
         <PwaBootstrap />
         <Suspense fallback={null}>
           <GlobalToast />
+          <NotificationOpenTracker />
         </Suspense>
         {children}
       </body>

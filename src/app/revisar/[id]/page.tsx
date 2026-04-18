@@ -1,9 +1,12 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
+import AppEventViewTracker from '@/components/app-event-view-tracker'
 import FinancialEntryForm from '@/components/financial-entry-form'
 import { createClient } from '@/lib/supabase/server'
 import ReprocessEntryButton from '@/components/reprocess-entry-button'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
+import { resolveFirstCaptureState } from '@/lib/user-app-state'
 import { submitEntryEdit, submitReview } from './actions'
 import { ui } from '@/lib/ui'
 
@@ -115,6 +118,17 @@ export default async function RevisarEntryPage({
 
   const safeReturnTo = sanitizeResumoReturnTo(returnTo)
   const isEditMode = mode === 'edit'
+  const cookieStore = await cookies()
+  const firstCaptureState = await resolveFirstCaptureState({
+    supabase,
+    userId: user.id,
+    cookieStore,
+  })
+  const shouldTrackFirstReviewView =
+    !isEditMode &&
+    entry.source === 'voice' &&
+    entry.review_status === 'pending' &&
+    !firstCaptureState.hasCompletedFirstCapture
 
   if (isEditMode && entry.review_status !== 'confirmed') {
     redirect(`/revisar/${id}`)
@@ -149,6 +163,17 @@ export default async function RevisarEntryPage({
 
   return (
     <main className={ui.page.shell}>
+      <AppEventViewTracker
+        eventName="first_review_viewed"
+        enabled={shouldTrackFirstReviewView}
+        onceKey={`first_review_viewed:${user.id}`}
+        properties={{
+          source_screen: 'revisar',
+          entry_id: entry.id,
+          has_completed_first_capture: false,
+        }}
+      />
+
       <div className={ui.page.containerNarrow}>
         <div className={ui.card.base}>
           <Link href={backHref} className="text-sm underline">

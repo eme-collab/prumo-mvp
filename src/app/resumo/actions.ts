@@ -2,7 +2,13 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { trackAppEventServer } from '@/lib/app-events-server'
 import { buildToastHref } from '@/lib/global-toast'
+import {
+  getOpenAccountItemType,
+  getOpenAccountUrgencyStatus,
+  isOpenAccount,
+} from '@/lib/pending-state'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
 import { createClient } from '@/lib/supabase/server'
 
@@ -31,7 +37,9 @@ export async function deleteResumoEntry(formData: FormData) {
 
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
-    .select('id, user_id, review_status, audio_path')
+    .select(
+      'id, user_id, review_status, audio_path, entry_type, settlement_status, due_on'
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -51,6 +59,29 @@ export async function deleteResumoEntry(formData: FormData) {
 
   if (error) {
     throw new Error(error.message)
+  }
+
+  if (isOpenAccount(entry.entry_type, entry.review_status, entry.settlement_status)) {
+    const itemType = getOpenAccountItemType(entry.entry_type)
+
+    if (itemType) {
+      await trackAppEventServer({
+        eventName:
+          itemType === 'receivable'
+            ? 'receivable_marked_resolved'
+            : 'payable_marked_resolved',
+        userId: user.id,
+        properties: {
+          source_screen: 'resumo',
+          item_type: itemType,
+          item_status: getOpenAccountUrgencyStatus(entry.due_on),
+          count: 1,
+          resolution: 'deleted',
+          entry_id: id,
+          has_completed_first_capture: true,
+        },
+      })
+    }
   }
 
   if (entry.audio_path) {

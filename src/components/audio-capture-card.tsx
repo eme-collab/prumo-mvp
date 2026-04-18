@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { trackAppEventClient } from '@/lib/app-events-client'
 import { createClient } from '@/lib/supabase/client'
 import { ui } from '@/lib/ui'
 
@@ -19,6 +20,7 @@ type AudioCaptureCardProps = {
   rotatingHints?: string[]
   primarySupportText?: string
   secondarySupportText?: string
+  hasCompletedFirstCapture?: boolean
 }
 
 function MicrophoneIcon({ className = 'h-5 w-5' }: { className?: string }) {
@@ -81,6 +83,7 @@ export default function AudioCaptureCard({
   rotatingHints = DEFAULT_ROTATING_HINTS,
   primarySupportText,
   secondarySupportText,
+  hasCompletedFirstCapture = false,
 }: AudioCaptureCardProps) {
   const router = useRouter()
 
@@ -243,6 +246,18 @@ export default function AudioCaptureCard({
       setLastEntryId(insertedEntry.id)
       setQueueMessage('Áudio enviado.')
 
+      void trackAppEventClient({
+        eventName: hasCompletedFirstCapture
+          ? 'record_completed'
+          : 'first_record_completed',
+        properties: {
+          source_screen: 'painel',
+          entry_id: insertedEntry.id,
+          has_completed_first_capture: hasCompletedFirstCapture,
+        },
+        onceKey: hasCompletedFirstCapture ? undefined : 'first_record_completed',
+      })
+
       router.refresh()
 
       void runBackgroundProcessing(insertedEntry.id)
@@ -316,6 +331,17 @@ export default function AudioCaptureCard({
       recorder.start()
       startRecordingTimer()
       setIsRecording(true)
+
+      void trackAppEventClient({
+        eventName: hasCompletedFirstCapture
+          ? 'record_started'
+          : 'first_record_started',
+        properties: {
+          source_screen: 'painel',
+          has_completed_first_capture: hasCompletedFirstCapture,
+        },
+        onceKey: hasCompletedFirstCapture ? undefined : 'first_record_started',
+      })
     } catch (startError) {
       console.error(startError)
       stopCurrentStream()

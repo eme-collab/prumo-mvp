@@ -1,3 +1,8 @@
+export {
+  compareOpenAccountsByUrgency,
+  getOpenAccountUrgencyMeta,
+} from '@/lib/pending-state'
+
 export function getEntryTypeLabel(entryType: string | null | undefined) {
   switch (entryType) {
     case 'sale_received':
@@ -26,51 +31,6 @@ export function getSettlementStatusLabel(
   }
 }
 
-function getTodayInSaoPaulo() {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-
-  return formatter.format(new Date())
-}
-
-export function getOpenAccountUrgencyMeta(dueOn: string | null | undefined) {
-  if (!dueOn) {
-    return {
-      label: 'Sem vencimento',
-      tone: 'neutral' as const,
-      rank: 3,
-    }
-  }
-
-  const today = getTodayInSaoPaulo()
-
-  if (dueOn < today) {
-    return {
-      label: 'Vencida',
-      tone: 'danger' as const,
-      rank: 0,
-    }
-  }
-
-  if (dueOn === today) {
-    return {
-      label: 'Vence hoje',
-      tone: 'warning' as const,
-      rank: 1,
-    }
-  }
-
-  return {
-    label: 'Em aberto',
-    tone: 'neutral' as const,
-    rank: 2,
-  }
-}
-
 export function getUrgencyBadgeClass(
   tone: 'danger' | 'warning' | 'neutral'
 ) {
@@ -82,20 +42,4 @@ export function getUrgencyBadgeClass(
     default:
       return 'border-neutral-200 bg-neutral-50 text-neutral-700'
   }
-}
-
-export function compareOpenAccountsByUrgency<
-  T extends { due_on: string | null }
->(a: T, b: T) {
-  const metaA = getOpenAccountUrgencyMeta(a.due_on)
-  const metaB = getOpenAccountUrgencyMeta(b.due_on)
-
-  if (metaA.rank !== metaB.rank) {
-    return metaA.rank - metaB.rank
-  }
-
-  const dueA = a.due_on ?? '9999-12-31'
-  const dueB = b.due_on ?? '9999-12-31'
-
-  return dueA.localeCompare(dueB)
 }

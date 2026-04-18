@@ -1,77 +1,65 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { trackAppEventClient } from '@/lib/app-events-client'
+import {
+  computeNotificationReadiness,
+  createEmptyUsefulItemsState,
+  type NotificationPreferencesState,
+  type NotificationUsefulItemsState,
+} from '@/lib/notification-readiness'
+import {
+  disablePushNotificationsForCurrentBrowser,
+  ensurePushSubscription,
+  fetchNotificationApiState,
+  getBrowserNotificationPermission,
+  getCurrentPushSubscription,
+  isNotificationSupportedInBrowser,
+  isSubscriptionCurrentlyValid,
+  requestPermissionAndSubscribe,
+  saveNotificationPreferences,
+  sendNotificationTest,
+} from '@/lib/notifications/client'
 import { ui } from '@/lib/ui'
 
-type NotificationPreferences = {
-  push_enabled: boolean
-  pending_enabled: boolean
-  payables_enabled: boolean
-  receivables_enabled: boolean
-}
-
-const defaultPreferences: NotificationPreferences = {
+const defaultPreferences: NotificationPreferencesState = {
   push_enabled: false,
   pending_enabled: true,
   payables_enabled: true,
   receivables_enabled: true,
 }
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  const outputArray = new Uint8Array(rawData.length)
-
-  for (let index = 0; index < rawData.length; ++index) {
-    outputArray[index] = rawData.charCodeAt(index)
-  }
-
-  return outputArray
-}
-
-function getPermissionLabel(permission: NotificationPermission) {
+function getPermissionLabel(permission: string) {
   switch (permission) {
     case 'granted':
-      return 'Ativas neste dispositivo'
+      return 'Permissão concedida'
     case 'denied':
       return 'Bloqueadas no navegador'
+    case 'unsupported':
+      return 'Sem suporte'
     default:
       return 'Ainda não autorizadas'
   }
 }
 
-export default function NotificationPreferencesCard() {
-  const [supported, setSupported] = useState(false)
+export default function NotificationPreferencesCard({
+  usefulItems = createEmptyUsefulItemsState(),
+  hasCompletedFirstCapture = true,
+}: {
+  usefulItems?: NotificationUsefulItemsState
+  hasCompletedFirstCapture?: boolean
+}) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [permission, setPermission] =
-    useState<NotificationPermission>('default')
+  const [permission, setPermission] = useState(getBrowserNotificationPermission())
   const [publicVapidKey, setPublicVapidKey] = useState('')
   const [isSubscribed, setIsSubscribed] = useState(false)
+  const [hasValidSubscription, setHasValidSubscription] = useState(false)
   const [preferences, setPreferences] =
-    useState<NotificationPreferences>(defaultPreferences)
+    useState<NotificationPreferencesState>(defaultPreferences)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-
-  async function saveSubscription(subscription: PushSubscription) {
-    const response = await fetch('/api/notifications/subscription', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(subscription.toJSON()),
-    })
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string
-      }
-
-      throw new Error(payload.error || 'Falha ao salvar subscription.')
-    }
-  }
 
   useEffect(() => {
     void (async () => {
@@ -79,48 +67,34 @@ export default function NotificationPreferencesCard() {
         setLoading(true)
         setError('')
 
-        const isSupported =
-          'Notification' in window &&
-          'serviceWorker' in navigator &&
-          'PushManager' in window
+        const isSupported = isNotificationSupportedInBrowser()
 
-        setSupported(isSupported)
+        setPermission(getBrowserNotificationPermission())
 
         if (!isSupported) {
           return
         }
 
-        setPermission(Notification.permission)
+        const apiState = await fetchNotificationApiState()
+        setPreferences(apiState.preferences ?? defaultPreferences)
+        setPublicVapidKey(apiState.publicVapidKey ?? '')
 
-        const preferencesResponse = await fetch(
-          '/api/notifications/preferences',
-          {
-            cache: 'no-store',
-          }
-        )
-
-        const preferencesPayload = (await preferencesResponse.json()) as {
-          error?: string
-          preferences?: NotificationPreferences
-          publicVapidKey?: string
-        }
-
-        if (!preferencesResponse.ok) {
-          throw new Error(
-            preferencesPayload.error ||
-              'Falha ao carregar preferências de notificação.'
-          )
-        }
-
-        setPreferences(preferencesPayload.preferences ?? defaultPreferences)
-        setPublicVapidKey(preferencesPayload.publicVapidKey ?? '')
-
-        const registration = await navigator.serviceWorker.ready
-        const subscription = await registration.pushManager.getSubscription()
+        const subscription = await getCurrentPushSubscription()
         setIsSubscribed(Boolean(subscription))
+        setHasValidSubscription(isSubscriptionCurrentlyValid(subscription))
 
-        if (subscription) {
-          await saveSubscription(subscription)
+        if (
+          getBrowserNotificationPermission() === 'granted' &&
+          apiState.publicVapidKey &&
+          !isSubscriptionCurrentlyValid(subscription)
+        ) {
+          const refreshedSubscription = await ensurePushSubscription(
+            apiState.publicVapidKey
+          )
+          setIsSubscribed(Boolean(refreshedSubscription))
+          setHasValidSubscription(
+            isSubscriptionCurrentlyValid(refreshedSubscription)
+          )
         }
       } catch (loadError) {
         setError(
@@ -134,30 +108,44 @@ export default function NotificationPreferencesCard() {
     })()
   }, [])
 
-  async function savePreferences(nextPreferences: NotificationPreferences) {
+  const readiness = useMemo(
+    () =>
+      computeNotificationReadiness({
+        hasCompletedFirstCapture,
+        isZenMode: false,
+        browser: {
+          isSupported: isNotificationSupportedInBrowser(),
+          permission,
+          hasSubscription: isSubscribed,
+          hasValidSubscription,
+        },
+        preferences,
+        usefulItems,
+        isSoftPromptDismissed: false,
+        allowFallbackPrompt: true,
+      }),
+    [
+      hasCompletedFirstCapture,
+      hasValidSubscription,
+      isSubscribed,
+      permission,
+      preferences,
+      usefulItems,
+    ]
+  )
+  const canAttemptEnable =
+    Boolean(publicVapidKey) && !readiness.needs_browser_settings_help
+
+  async function persistPreferences(nextPreferences: NotificationPreferencesState) {
     setSaving(true)
     setError('')
     setMessage('')
 
     try {
-      const response = await fetch('/api/notifications/preferences', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(nextPreferences),
-      })
+      const persistedPreferences =
+        await saveNotificationPreferences(nextPreferences)
 
-      const payload = (await response.json()) as {
-        error?: string
-        preferences?: NotificationPreferences
-      }
-
-      if (!response.ok) {
-        throw new Error(payload.error || 'Falha ao salvar preferências.')
-      }
-
-      setPreferences(payload.preferences ?? nextPreferences)
+      setPreferences(persistedPreferences)
       setMessage('Preferências de notificação salvas.')
     } catch (saveError) {
       setError(
@@ -171,7 +159,7 @@ export default function NotificationPreferencesCard() {
   }
 
   async function handleEnableNotifications() {
-    if (!supported || !publicVapidKey) {
+    if (!isNotificationSupportedInBrowser() || !publicVapidKey) {
       return
     }
 
@@ -180,29 +168,65 @@ export default function NotificationPreferencesCard() {
       setError('')
       setMessage('')
 
-      const nextPermission = await Notification.requestPermission()
-      setPermission(nextPermission)
+      if (permission === 'denied') {
+        setError(
+          'As notificações estão bloqueadas neste navegador. Ajuste a permissão no navegador ou no sistema para voltar a ativar.'
+        )
+        return
+      }
 
-      if (nextPermission !== 'granted') {
+      const result =
+        permission === 'granted'
+          ? {
+              permission,
+              subscription: await ensurePushSubscription(publicVapidKey),
+            }
+          : await (async () => {
+              await trackAppEventClient({
+                eventName: 'notification_permission_requested',
+                properties: {
+                  source_screen: 'resumo',
+                  notification_permission_status: permission,
+                  has_completed_first_capture: hasCompletedFirstCapture,
+                },
+              })
+
+              return requestPermissionAndSubscribe(publicVapidKey)
+            })()
+
+      setPermission(result.permission)
+      setIsSubscribed(Boolean(result.subscription))
+      setHasValidSubscription(isSubscriptionCurrentlyValid(result.subscription))
+
+      if (permission !== 'granted' && result.permission !== 'granted') {
+        await trackAppEventClient({
+          eventName: 'notification_permission_denied',
+          properties: {
+            source_screen: 'resumo',
+            notification_permission_status: result.permission,
+            has_completed_first_capture: hasCompletedFirstCapture,
+          },
+        })
+
         throw new Error(
-          'Permissão de notificação não concedida neste dispositivo.'
+          result.permission === 'denied'
+            ? 'As notificações ficaram bloqueadas. Ajuste a permissão no navegador ou no sistema para voltar a ativar.'
+            : 'Permissão de notificação não concedida neste dispositivo.'
         )
       }
 
-      const registration = await navigator.serviceWorker.ready
-      let subscription = await registration.pushManager.getSubscription()
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+      if (permission !== 'granted') {
+        await trackAppEventClient({
+          eventName: 'notification_permission_accepted',
+          properties: {
+            source_screen: 'resumo',
+            notification_permission_status: result.permission,
+            has_completed_first_capture: hasCompletedFirstCapture,
+          },
         })
       }
 
-      await saveSubscription(subscription)
-      setIsSubscribed(true)
-
-      await savePreferences({
+      await persistPreferences({
         ...preferences,
         push_enabled: true,
       })
@@ -223,34 +247,12 @@ export default function NotificationPreferencesCard() {
       setError('')
       setMessage('')
 
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.getSubscription()
-
-      if (subscription) {
-        const response = await fetch('/api/notifications/subscription', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            endpoint: subscription.endpoint,
-          }),
-        })
-
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as {
-            error?: string
-          }
-
-          throw new Error(payload.error || 'Falha ao remover subscription.')
-        }
-
-        await subscription.unsubscribe()
-      }
+      await disablePushNotificationsForCurrentBrowser()
 
       setIsSubscribed(false)
+      setHasValidSubscription(false)
 
-      await savePreferences({
+      await persistPreferences({
         ...preferences,
         push_enabled: false,
       })
@@ -271,17 +273,7 @@ export default function NotificationPreferencesCard() {
       setError('')
       setMessage('')
 
-      const response = await fetch('/api/notifications/test', {
-        method: 'POST',
-      })
-
-      const payload = (await response.json()) as { error?: string }
-
-      if (!response.ok) {
-        throw new Error(
-          payload.error || 'Falha ao enviar notificação de teste.'
-        )
-      }
+      await sendNotificationTest()
 
       setMessage('Notificação de teste enviada para este usuário.')
     } catch (testError) {
@@ -304,7 +296,7 @@ export default function NotificationPreferencesCard() {
     )
   }
 
-  if (!supported) {
+  if (!isNotificationSupportedInBrowser()) {
     return (
       <div className={ui.card.base}>
         <h2 className={ui.text.sectionTitle}>Notificações úteis</h2>
@@ -328,6 +320,24 @@ export default function NotificationPreferencesCard() {
 
         <span className={ui.badge.neutral}>{getPermissionLabel(permission)}</span>
       </div>
+
+      {readiness.needs_browser_settings_help && (
+        <div className={`mt-4 ${ui.card.warning}`}>
+          <p className="text-sm text-amber-800">
+            As notificações estão bloqueadas. Ajuste a permissão no navegador ou
+            no sistema para voltar a receber lembretes.
+          </p>
+        </div>
+      )}
+
+      {readiness.needs_resubscribe && !readiness.needs_browser_settings_help && (
+        <div className={`mt-4 ${ui.card.warning}`}>
+          <p className="text-sm text-amber-800">
+            A permissão existe, mas este navegador ainda não ficou pronto para
+            receber push. Toque para ativar de novo neste dispositivo.
+          </p>
+        </div>
+      )}
 
       {!publicVapidKey && (
         <div className={`mt-4 ${ui.card.warning}`}>
@@ -355,7 +365,7 @@ export default function NotificationPreferencesCard() {
           <input
             type="checkbox"
             checked={preferences.pending_enabled}
-            disabled={!preferences.push_enabled || saving}
+            disabled={!readiness.is_notifications_effectively_enabled || saving}
             onChange={(event) =>
               setPreferences((current) => ({
                 ...current,
@@ -370,7 +380,7 @@ export default function NotificationPreferencesCard() {
           <input
             type="checkbox"
             checked={preferences.payables_enabled}
-            disabled={!preferences.push_enabled || saving}
+            disabled={!readiness.is_notifications_effectively_enabled || saving}
             onChange={(event) =>
               setPreferences((current) => ({
                 ...current,
@@ -385,7 +395,7 @@ export default function NotificationPreferencesCard() {
           <input
             type="checkbox"
             checked={preferences.receivables_enabled}
-            disabled={!preferences.push_enabled || saving}
+            disabled={!readiness.is_notifications_effectively_enabled || saving}
             onChange={(event) =>
               setPreferences((current) => ({
                 ...current,
@@ -398,20 +408,24 @@ export default function NotificationPreferencesCard() {
       </div>
 
       <div className="mt-5 flex flex-wrap gap-3">
-        {!preferences.push_enabled || !isSubscribed ? (
+        {!readiness.is_notifications_effectively_enabled ? (
           <button
             type="button"
             onClick={handleEnableNotifications}
-            disabled={saving || !publicVapidKey}
+            disabled={saving || !canAttemptEnable}
             className={ui.button.primary}
           >
-            {saving ? 'Ativando...' : 'Ativar notificações'}
+            {saving
+              ? 'Ativando...'
+              : readiness.needs_browser_settings_help
+                ? 'Bloqueado no navegador'
+                : 'Ativar lembretes'}
           </button>
         ) : (
           <>
             <button
               type="button"
-              onClick={() => void savePreferences(preferences)}
+              onClick={() => void persistPreferences(preferences)}
               disabled={saving}
               className={ui.button.secondary}
             >
@@ -421,7 +435,7 @@ export default function NotificationPreferencesCard() {
             <button
               type="button"
               onClick={handleTestPush}
-              disabled={testing}
+              disabled={testing || !readiness.can_send_test_notification}
               className={ui.button.secondary}
             >
               {testing ? 'Enviando teste...' : 'Enviar notificação de teste'}

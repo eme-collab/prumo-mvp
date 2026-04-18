@@ -140,7 +140,116 @@ Uma release não deve piorar a simplicidade do app.
 
 ---
 
-# 7. Checklist final de decisão
+# 7. Etapa 2 — validação operacional de notificações
+Este bloco fecha a validação humana da Etapa 2 sem exigir dashboard novo.
+
+## Ativação e readiness
+- [ ] Login e Modo Zen não disparam prompt nativo de notificação
+- [ ] Fora do Zen, com valor percebido e item útil, o microbloco aparece no painel
+- [ ] Clicar em “Agora não” respeita a recusa por 7 dias no mesmo navegador
+- [ ] Com permissão negada no navegador, a UI não finge que ainda pode ativar push
+- [ ] Com permissão concedida mas sem subscription válida, o app tenta resubscribe antes de marcar como efetivamente ativo
+
+## Teste ponta a ponta
+- [ ] Há `NEXT_PUBLIC_VAPID_PUBLIC_KEY` configurada e subscription válida no navegador
+- [ ] O botão “Enviar notificação de teste” só aparece quando o usuário está realmente apto a receber
+- [ ] A notificação de teste chega de verdade
+- [ ] Ao abrir a notificação de teste, o app volta com contexto válido e registra uma única abertura
+
+## Lembretes úteis N1 / N2 / N3
+- [ ] Pendência de revisão só entra em lembrete após 15 minutos
+- [ ] Pendência agregada dispara no máximo 1 vez por dia por usuário
+- [ ] Recebível due today só entra na janela 08:00–10:00 America/Sao_Paulo
+- [ ] Recebível overdue só volta no dia seguinte e depois no máximo 1 vez a cada 3 dias, com limite de 3 envios por item
+- [ ] Pagável segue a mesma regra de due today / overdue / limite por item
+- [ ] Item resolvido sai do painel, do resumo, da elegibilidade e deixa de gerar novos pushes
+
+## Deep link e contexto
+- [ ] `pending_review` abre revisão direta quando houver um único item, ou painel com `focus=pending_review` quando agregado
+- [ ] `receivable_*` abre `/liquidar/[id]`
+- [ ] `payable_*` abre `/liquidar/[id]`
+- [ ] Abrir a notificação não deixa o app em tela genérica sem foco útil
+
+## Consultas SQL mínimas para validar a etapa
+Rodar no SQL Editor do Supabase ou equivalente, ajustando o intervalo conforme a janela do teste.
+
+### Eventos principais do funil
+```sql
+select
+  event_name,
+  count(*) as total
+from public.app_events
+where occurred_at >= now() - interval '7 days'
+  and event_name in (
+    'login_completed',
+    'first_record_started',
+    'first_record_completed',
+    'first_record_confirmed',
+    'record_started',
+    'record_completed',
+    'record_confirmed',
+    'notification_opened'
+  )
+group by event_name
+order by event_name;
+```
+
+### Quantos voltaram por notificação
+```sql
+select count(*) as notification_opens
+from public.app_events
+where occurred_at >= now() - interval '7 days'
+  and event_name = 'notification_opened';
+```
+
+### Quem voltou a usar o microfone repetidamente
+```sql
+select
+  user_id,
+  count(*) as total_record_started
+from public.app_events
+where occurred_at >= now() - interval '7 days'
+  and event_name in ('first_record_started', 'record_started')
+group by user_id
+having count(*) > 1
+order by total_record_started desc;
+```
+
+### Amostra de entregas e aberturas de notificação
+```sql
+select
+  notification_type,
+  delivery_scope,
+  delivery_key,
+  sent_at,
+  opened_at,
+  item_type,
+  item_id
+from public.notification_deliveries
+where sent_at >= now() - interval '7 days'
+order by sent_at desc
+limit 50;
+```
+
+### Itens ainda abertos que continuam elegíveis
+```sql
+select
+  entry_type,
+  settlement_status,
+  due_on,
+  review_status,
+  count(*) as total
+from public.financial_entries
+where review_status = 'confirmed'
+  and settlement_status = 'open'
+  and due_on is not null
+group by entry_type, settlement_status, due_on, review_status
+order by due_on asc;
+```
+
+---
+
+# 8. Checklist final de decisão
 Responder honestamente:
 
 - [ ] Eu testei o fluxo principal inteiro
@@ -151,7 +260,7 @@ Responder honestamente:
 
 ---
 
-# 8. Regra final de release
+# 9. Regra final de release
 Se qualquer item crítico do fluxo principal falhar, a release deve ser tratada como não pronta.
 
 ## Regra-mãe

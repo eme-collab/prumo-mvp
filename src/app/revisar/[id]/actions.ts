@@ -8,6 +8,12 @@ import {
   type GlobalToastKind,
   type GlobalToastUndo,
 } from '@/lib/global-toast'
+import { trackAppEventServer } from '@/lib/app-events-server'
+import {
+  getOpenAccountItemType,
+  getOpenAccountUrgencyStatus,
+  isOpenAccount,
+} from '@/lib/pending-state'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -202,6 +208,19 @@ export async function submitReview(formData: FormData) {
       throw new Error(error.message)
     }
 
+    await trackAppEventServer({
+      eventName: 'pending_review_resolved',
+      userId: user.id,
+      cookieStore,
+      properties: {
+        source_screen: 'revisar',
+        item_type: 'pending_review',
+        count: 1,
+        resolution: 'discarded',
+        entry_id: id,
+      },
+    })
+
     revalidatePath('/painel')
     revalidatePath('/resumo')
     await redirectToNextPendingOrPanel({
@@ -248,6 +267,56 @@ export async function submitReview(formData: FormData) {
       source: currentEntry.source,
       cookieStore,
     })
+
+    await trackAppEventServer({
+      eventName: 'pending_review_resolved',
+      userId: user.id,
+      cookieStore,
+      properties: {
+        source_screen: 'revisar',
+        item_type: 'pending_review',
+        count: 1,
+        resolution: 'confirmed',
+        entry_id: id,
+        has_completed_first_capture: true,
+      },
+    })
+
+    if (currentEntry.source === 'voice') {
+      if (firstCaptureUnlock.shouldRedirectToUnlockedPanel) {
+        await trackAppEventServer({
+          eventName: 'first_record_confirmed',
+          userId: user.id,
+          cookieStore,
+          properties: {
+            source_screen: 'revisar',
+            has_completed_first_capture: true,
+            entry_id: id,
+          },
+        })
+        await trackAppEventServer({
+          eventName: 'zen_mode_completed',
+          userId: user.id,
+          cookieStore,
+          properties: {
+            source_screen: 'revisar',
+            has_completed_first_capture: true,
+            entry_id: id,
+          },
+        })
+      } else {
+        await trackAppEventServer({
+          eventName: 'record_confirmed',
+          userId: user.id,
+          cookieStore,
+          properties: {
+            source_screen: 'revisar',
+            has_completed_first_capture: true,
+            entry_id: id,
+          },
+        })
+      }
+    }
 
     revalidatePath('/painel')
     revalidatePath('/resumo')
@@ -328,7 +397,9 @@ export async function submitEntryEdit(formData: FormData) {
 
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
-    .select('id, user_id, review_status, settlement_status')
+    .select(
+      'id, user_id, review_status, settlement_status, entry_type, due_on'
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -385,6 +456,23 @@ export async function submitEntryEdit(formData: FormData) {
     }
   }
 
+  const wasOpenAccount = isOpenAccount(
+    entry.entry_type,
+    entry.review_status,
+    entry.settlement_status
+  )
+  const nextSettlementFields = getEditSettlementFields({
+    entryType,
+    currentSettlementStatus: entry.settlement_status,
+    settledOn,
+    settledAmount,
+  })
+  const remainsOpenAccount = isOpenAccount(
+    entryType,
+    entry.review_status,
+    nextSettlementFields.settlement_status
+  )
+
   const { error } = await supabase
     .from('financial_entries')
     .update({
@@ -395,12 +483,7 @@ export async function submitEntryEdit(formData: FormData) {
       amount,
       occurred_on: occurredOn,
       due_on: dueOn,
-      ...getEditSettlementFields({
-        entryType,
-        currentSettlementStatus: entry.settlement_status,
-        settledOn,
-        settledAmount,
-      }),
+      ...nextSettlementFields,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -408,6 +491,29 @@ export async function submitEntryEdit(formData: FormData) {
 
   if (error) {
     throw new Error(error.message)
+  }
+
+  if (wasOpenAccount && !remainsOpenAccount) {
+    const previousItemType = getOpenAccountItemType(entry.entry_type)
+
+    if (previousItemType) {
+      await trackAppEventServer({
+        eventName:
+          previousItemType === 'receivable'
+            ? 'receivable_marked_resolved'
+            : 'payable_marked_resolved',
+        userId: user.id,
+        properties: {
+          source_screen: 'revisar',
+          item_type: previousItemType,
+          item_status: getOpenAccountUrgencyStatus(entry.due_on),
+          count: 1,
+          resolution: 'edited',
+          entry_id: id,
+          has_completed_first_capture: true,
+        },
+      })
+    }
   }
 
   revalidatePath('/painel')

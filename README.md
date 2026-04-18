@@ -220,6 +220,7 @@ O arquivo [20260407_phase3_push_notifications.sql](/C:/Users/egidi/OneDrive/Docu
 3. Execute o app com HTTPS local quando quiser validar instalação e push no navegador compatível.
 4. No painel, ative notificações e envie uma notificação de teste.
 5. Para validar lembretes reais, faça um `POST` autenticado por segredo para `/api/notifications/reminders`.
+6. Para a validação operacional final da Etapa 2, siga o checklist em [docs/05-checklist-de-release.md](/C:/Users/egidi/OneDrive/Documentos/Desenvolvimento/prumo-mvp/docs/05-checklist-de-release.md), incluindo as consultas SQL de `app_events` e `notification_deliveries`.
 
 Exemplo de chamada manual:
 

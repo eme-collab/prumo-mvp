@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { NotificationType } from '@/lib/notification-readiness'
 import webpush from 'web-push'
 
 export type NotificationPreferences = {
@@ -26,6 +27,11 @@ export type PushMessage = {
   body: string
   url: string
   tag: string
+  notificationType?: NotificationType
+  itemType?: string
+  itemStatus?: string
+  itemId?: string
+  deliveryId?: string
 }
 
 export const defaultNotificationPreferences: NotificationPreferences = {
@@ -59,25 +65,61 @@ function ensureWebPushConfigured() {
   webPushConfigured = true
 }
 
-export function getTodayInSaoPaulo() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-}
-
-export function getTomorrowInSaoPaulo() {
-  const now = new Date()
-  now.setUTCDate(now.getUTCDate() + 1)
-
+export function getTodayInSaoPaulo(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Sao_Paulo',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(now)
+}
+
+export function getBrazilDateTimeParts(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  })
+    .formatToParts(now)
+    .reduce<Record<string, string>>((accumulator, part) => {
+      if (part.type !== 'literal') {
+        accumulator[part.type] = part.value
+      }
+
+      return accumulator
+    }, {})
+}
+
+export function getTomorrowInSaoPaulo() {
+  const now = new Date()
+  now.setUTCDate(now.getUTCDate() + 1)
+
+  return getTodayInSaoPaulo(now)
+}
+
+export function buildFocusUrl(
+  href: string,
+  options?: {
+    notificationDeliveryId?: string
+    notificationType?: NotificationType
+  }
+) {
+  const [pathname, rawSearch = ''] = href.split('?')
+  const searchParams = new URLSearchParams(rawSearch)
+
+  if (options?.notificationDeliveryId) {
+    searchParams.set('notification_delivery', options.notificationDeliveryId)
+  }
+
+  if (options?.notificationType) {
+    searchParams.set('notification_type', options.notificationType)
+  }
+
+  const nextSearch = searchParams.toString()
+  return nextSearch ? `${pathname}?${nextSearch}` : pathname
 }
 
 function getPushSubscriptionPayload(subscription: PushSubscriptionRow) {
@@ -129,6 +171,11 @@ export async function sendPushMessageToUser(
             body: message.body,
             url: message.url,
             tag: message.tag,
+            notificationType: message.notificationType,
+            itemType: message.itemType,
+            itemStatus: message.itemStatus,
+            itemId: message.itemId,
+            deliveryId: message.deliveryId,
           })
         )
 

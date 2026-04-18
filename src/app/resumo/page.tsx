@@ -1,12 +1,19 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import AppEventViewTracker from '@/components/app-event-view-tracker'
+import ContextFocusTarget from '@/components/context-focus-target'
 import DeleteEntryButton from '@/components/delete-entry-button'
 import NotificationPreferencesCard from '@/components/notification-preferences-card'
 import { deleteResumoEntry } from '@/app/resumo/actions'
 import { buildResumoEditHref, buildResumoHref } from '@/lib/resumo-navigation'
+import {
+  buildOpenAccountState,
+  getOpenAccountUrgencyMeta,
+} from '@/lib/pending-state'
 import { formatCurrency, getMonthPeriod } from '@/lib/month-period'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
+import { getUrgencyBadgeClass } from '@/lib/financial-entry-labels'
 
 type CashEntry = {
   id: string
@@ -116,9 +123,9 @@ function getSectionCount(entries: Array<unknown>) {
 export default async function ResumoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>
+  searchParams: Promise<{ month?: string; focus?: string }>
 }) {
-  const { month } = await searchParams
+  const { month, focus } = await searchParams
   const period = getMonthPeriod(month)
 
   const supabase = await createClient()
@@ -183,8 +190,6 @@ export default async function ResumoPage({
       .eq('review_status', 'confirmed')
       .eq('entry_type', 'sale_due')
       .eq('settlement_status', 'open')
-      .gte('due_on', period.startDate)
-      .lt('due_on', period.nextDate)
       .order('due_on', { ascending: false }),
 
     supabase
@@ -193,8 +198,6 @@ export default async function ResumoPage({
       .eq('review_status', 'confirmed')
       .eq('entry_type', 'expense_due')
       .eq('settlement_status', 'open')
-      .gte('due_on', period.startDate)
-      .lt('due_on', period.nextDate)
       .order('due_on', { ascending: false }),
   ])
 
@@ -216,6 +219,20 @@ export default async function ResumoPage({
   const paidSettledEntries = (paidSettledResult.data ?? []) as SettledDueEntry[]
   const receivableOpenEntries = (receivableOpenResult.data ?? []) as OpenDueEntry[]
   const payableOpenEntries = (payableOpenResult.data ?? []) as OpenDueEntry[]
+  const openAccountState = buildOpenAccountState([
+    ...receivableOpenEntries.map((entry) => ({
+      ...entry,
+      entry_type: 'sale_due' as const,
+      review_status: 'confirmed' as const,
+      settlement_status: 'open' as const,
+    })),
+    ...payableOpenEntries.map((entry) => ({
+      ...entry,
+      entry_type: 'expense_due' as const,
+      review_status: 'confirmed' as const,
+      settlement_status: 'open' as const,
+    })),
+  ])
 
   const receivedTotal =
     sumAmounts(receivedCashEntries) + sumSettledAmounts(receivedSettledEntries)
@@ -223,10 +240,17 @@ export default async function ResumoPage({
   const paidTotal =
     sumAmounts(paidCashEntries) + sumSettledAmounts(paidSettledEntries)
 
-  const receivableTotal = sumAmounts(receivableOpenEntries)
-  const payableTotal = sumAmounts(payableOpenEntries)
+  const receivableTotal = sumAmounts(openAccountState.receivableEntries)
+  const payableTotal = sumAmounts(openAccountState.payableEntries)
   const confirmedBalance = receivedTotal - paidTotal
   const resumoReturnTo = buildResumoHref(period.monthValue)
+  const isReceivableFocused = focus === 'receivable'
+  const isPayableFocused = focus === 'payable'
+  const focusTargetId = isReceivableFocused
+    ? 'summary-receivable'
+    : isPayableFocused
+      ? 'summary-payable'
+      : null
 
   const receivedEntries = [
     ...receivedCashEntries.map((entry) => ({
@@ -268,6 +292,16 @@ export default async function ResumoPage({
 
   return (
     <main className={ui.page.shell}>
+      <AppEventViewTracker
+        eventName="viewed_summary_page"
+        onceKey={`viewed_summary_page:${period.monthValue}:${focus ?? 'default'}`}
+        properties={{
+          source_screen: 'resumo',
+          month: period.monthValue,
+        }}
+      />
+      <ContextFocusTarget targetId={focusTargetId} />
+
       <div className={ui.page.container}>
         <div className={ui.card.base}>
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -444,7 +478,15 @@ export default async function ResumoPage({
             )}
           </details>
 
-          <details className={ui.card.base}>
+          <details
+            id="summary-receivable"
+            open={isReceivableFocused}
+            className={`${ui.card.base} ${
+              isReceivableFocused
+                ? 'ring-2 ring-sky-300 ring-offset-2 ring-offset-neutral-50'
+                : ''
+            }`}
+          >
             <summary className="cursor-pointer list-none">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -452,23 +494,26 @@ export default async function ResumoPage({
                     Contas a receber em aberto
                   </h2>
                   <p className={`mt-1 ${ui.text.muted}`}>
-                    Valores ainda não liquidados com vencimento no mês.
+                    Veja o que vence hoje, venceu ou ainda está pendente.
                   </p>
                 </div>
 
                 <span className={ui.badge.primary}>
-                  {getSectionCount(receivableOpenEntries)}
+                  {getSectionCount(openAccountState.receivableEntries)}
                 </span>
               </div>
             </summary>
 
-            {receivableOpenEntries.length === 0 ? (
+            {openAccountState.receivableEntries.length === 0 ? (
               <p className={`mt-4 ${ui.text.muted}`}>
-                Nenhuma conta a receber em aberto neste mês.
+                Nenhuma conta a receber em aberto agora.
               </p>
             ) : (
               <ul className="mt-4 space-y-3">
-                {receivableOpenEntries.map((entry) => (
+                {openAccountState.receivableEntries.map((entry) => {
+                  const urgency = getOpenAccountUrgencyMeta(entry.due_on)
+
+                  return (
                   <li key={entry.id} className={ui.card.muted}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -484,6 +529,15 @@ export default async function ResumoPage({
                         <p className={`mt-1 ${ui.text.subtle}`}>
                           Vencimento: {entry.due_on ?? '-'}
                         </p>
+                        <div className="mt-2">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
+                              urgency.tone
+                            )}`}
+                          >
+                            {urgency.label}
+                          </span>
+                        </div>
                       </div>
 
                       <EntryActionButtons
@@ -492,12 +546,21 @@ export default async function ResumoPage({
                       />
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
           </details>
 
-          <details className={ui.card.base}>
+          <details
+            id="summary-payable"
+            open={isPayableFocused}
+            className={`${ui.card.base} ${
+              isPayableFocused
+                ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-neutral-50'
+                : ''
+            }`}
+          >
             <summary className="cursor-pointer list-none">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -505,23 +568,26 @@ export default async function ResumoPage({
                     Contas a pagar em aberto
                   </h2>
                   <p className={`mt-1 ${ui.text.muted}`}>
-                    Contas ainda não liquidadas com vencimento no mês.
+                    Veja o que vence hoje, venceu ou ainda está pendente.
                   </p>
                 </div>
 
                 <span className={ui.badge.warning}>
-                  {getSectionCount(payableOpenEntries)}
+                  {getSectionCount(openAccountState.payableEntries)}
                 </span>
               </div>
             </summary>
 
-            {payableOpenEntries.length === 0 ? (
+            {openAccountState.payableEntries.length === 0 ? (
               <p className={`mt-4 ${ui.text.muted}`}>
-                Nenhuma conta a pagar em aberto neste mês.
+                Nenhuma conta a pagar em aberto agora.
               </p>
             ) : (
               <ul className="mt-4 space-y-3">
-                {payableOpenEntries.map((entry) => (
+                {openAccountState.payableEntries.map((entry) => {
+                  const urgency = getOpenAccountUrgencyMeta(entry.due_on)
+
+                  return (
                   <li key={entry.id} className={ui.card.muted}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -537,6 +603,15 @@ export default async function ResumoPage({
                         <p className={`mt-1 ${ui.text.subtle}`}>
                           Vencimento: {entry.due_on ?? '-'}
                         </p>
+                        <div className="mt-2">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
+                              urgency.tone
+                            )}`}
+                          >
+                            {urgency.label}
+                          </span>
+                        </div>
                       </div>
 
                       <EntryActionButtons
@@ -545,14 +620,15 @@ export default async function ResumoPage({
                       />
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
           </details>
         </div>
 
         <div className="pt-2">
-          <NotificationPreferencesCard />
+          <NotificationPreferencesCard hasCompletedFirstCapture />
         </div>
       </div>
     </main>

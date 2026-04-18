@@ -2,7 +2,12 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { trackAppEventServer } from '@/lib/app-events-server'
 import { buildToastHref } from '@/lib/global-toast'
+import {
+  getOpenAccountItemType,
+  getOpenAccountUrgencyStatus,
+} from '@/lib/pending-state'
 import { createClient } from '@/lib/supabase/server'
 
 function getString(formData: FormData, key: string) {
@@ -61,7 +66,9 @@ export async function settleEntry(formData: FormData) {
 
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
-    .select('id, user_id, entry_type, review_status')
+    .select(
+      'id, user_id, entry_type, review_status, settlement_status, due_on'
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -96,6 +103,27 @@ export async function settleEntry(formData: FormData) {
 
   if (error) {
     throw new Error(error.message)
+  }
+
+  const itemType = getOpenAccountItemType(entry.entry_type)
+
+  if (itemType && entry.settlement_status === 'open') {
+    await trackAppEventServer({
+      eventName:
+        itemType === 'receivable'
+          ? 'receivable_marked_resolved'
+          : 'payable_marked_resolved',
+      userId: user.id,
+      properties: {
+        source_screen: 'liquidar',
+        item_type: itemType,
+        item_status: getOpenAccountUrgencyStatus(entry.due_on),
+        count: 1,
+        resolution: 'settled',
+        entry_id: id,
+        has_completed_first_capture: true,
+      },
+    })
   }
 
   revalidatePath('/painel')

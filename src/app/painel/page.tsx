@@ -1,20 +1,31 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import AppEventViewTracker from '@/components/app-event-view-tracker'
 import AudioCaptureCard from '@/components/audio-capture-card'
+import ContextFocusTarget from '@/components/context-focus-target'
 import DashboardCollapsibleCard from '@/components/dashboard-collapsible-card'
 import FirstCaptureCookieCleaner from '@/components/first-capture-cookie-cleaner'
 import FirstCaptureFeedback from '@/components/first-capture-feedback'
 import FirstCaptureValidationPanel from '@/components/first-capture-validation-panel'
 import InstallAppCard from '@/components/install-app-card'
+import NotificationSoftPrompt from '@/components/notification-soft-prompt'
 import QuickConfirmPendingButton from '@/components/quick-confirm-pending-button'
 import {
-  compareOpenAccountsByUrgency,
   getEntryTypeLabel,
   getOpenAccountUrgencyMeta,
   getUrgencyBadgeClass,
 } from '@/lib/financial-entry-labels'
 import { formatCurrency } from '@/lib/month-period'
+import {
+  buildOpenAccountState,
+  buildPendingReviewState,
+  buildUsefulPendingItemsState,
+  matchesUrgencyFilter,
+  normalizeFocusStatusFilter,
+  OPEN_ACCOUNT_SELECT,
+  PENDING_REVIEW_SELECT,
+} from '@/lib/pending-state'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
 import {
@@ -58,13 +69,13 @@ function getPendingCardClass(
 
 function getOpenAccountsCardClass(
   openAccountsCount: number,
-  overdueOpenAccountsCount: number
+  highestUrgency: 'normal' | 'due_today' | 'overdue' | null
 ) {
-  if (overdueOpenAccountsCount > 0) {
+  if (highestUrgency === 'overdue') {
     return 'rounded-2xl border border-red-200 bg-red-50/40 p-4 shadow-sm md:p-5'
   }
 
-  if (openAccountsCount > 0) {
+  if (highestUrgency === 'due_today') {
     return 'rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm md:p-5'
   }
 
@@ -128,8 +139,8 @@ function canQuickSettleOpenAccount(entry: {
   )
 }
 
-function getOpenAccountQuickActionLabel(entryType: 'sale_due' | 'expense_due') {
-  if (entryType === 'sale_due') {
+function getOpenAccountQuickActionLabel(itemType: 'receivable' | 'payable') {
+  if (itemType === 'receivable') {
     return 'Revisar próximo recebimento'
   }
 
@@ -158,13 +169,13 @@ function getPendingBadgeClass(
 
 function getOpenAccountsBadgeClass(
   openAccountsCount: number,
-  overdueOpenAccountsCount: number
+  highestUrgency: 'normal' | 'due_today' | 'overdue' | null
 ) {
-  if (overdueOpenAccountsCount > 0) {
+  if (highestUrgency === 'overdue') {
     return ui.badge.danger
   }
 
-  if (openAccountsCount > 0) {
+  if (highestUrgency === 'due_today' || openAccountsCount > 0) {
     return ui.badge.warning
   }
 
@@ -223,6 +234,12 @@ export default async function PainelPage({
     isFirstCaptureValidationMode &&
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
     Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
+  const focus = getSearchParamValue(resolvedSearchParams.focus)
+  const statusFilter = normalizeFocusStatusFilter(
+    getSearchParamValue(resolvedSearchParams.status)
+  )
+  const isPendingReviewFocused = focus === 'pending_review'
+  const isOpenAccountsFocused = focus === 'open_accounts'
 
   let pending: Array<{
     id: string
@@ -236,6 +253,7 @@ export default async function PainelPage({
     description: string | null
     processing_status: string | null
     processing_error: string | null
+    review_status: 'pending'
   }> = []
   let openReceivables: Array<{
     id: string
@@ -244,6 +262,8 @@ export default async function PainelPage({
     amount: number | null
     due_on: string | null
     settlement_status: string | null
+    entry_type: 'sale_due'
+    review_status: 'confirmed'
   }> = []
   let openPayables: Array<{
     id: string
@@ -252,6 +272,8 @@ export default async function PainelPage({
     amount: number | null
     due_on: string | null
     settlement_status: string | null
+    entry_type: 'expense_due'
+    review_status: 'confirmed'
   }> = []
   let pendingError: { message: string } | null = null
   let openReceivablesError: { message: string } | null = null
@@ -265,18 +287,14 @@ export default async function PainelPage({
     ] = await Promise.all([
       supabase
         .from('financial_entries')
-        .select(
-          'id, source, transcript, audio_path, occurred_on, created_at, entry_type, amount, description, processing_status, processing_error'
-        )
+        .select(PENDING_REVIEW_SELECT)
         .eq('review_status', 'pending')
         .order('created_at', { ascending: false })
         .limit(20),
 
       supabase
         .from('financial_entries')
-        .select(
-          'id, description, counterparty_name, amount, due_on, settlement_status'
-        )
+        .select(OPEN_ACCOUNT_SELECT)
         .eq('review_status', 'confirmed')
         .eq('entry_type', 'sale_due')
         .eq('settlement_status', 'open')
@@ -285,9 +303,7 @@ export default async function PainelPage({
 
       supabase
         .from('financial_entries')
-        .select(
-          'id, description, counterparty_name, amount, due_on, settlement_status'
-        )
+        .select(OPEN_ACCOUNT_SELECT)
         .eq('review_status', 'confirmed')
         .eq('entry_type', 'expense_due')
         .eq('settlement_status', 'open')
@@ -303,58 +319,57 @@ export default async function PainelPage({
     openPayablesError = openPayablesResult.error
   }
 
-  const pendingCount = pending?.length ?? 0
-
-  const processingEntries =
-    pending?.filter((entry) =>
-      ['uploaded', 'transcribing', 'parsing'].includes(
-        entry.processing_status ?? ''
-      )
-    ) ?? []
-
-  const readyEntries =
-    pending?.filter((entry) => entry.processing_status === 'ready') ?? []
-
-  const failedEntries =
-    pending?.filter((entry) => entry.processing_status === 'failed') ?? []
-  const readyCount = readyEntries.length
-  const processingCount = processingEntries.length
-  const failedCount = failedEntries.length
-  const nextReadyEntry =
-    [...readyEntries].sort((a, b) => a.created_at.localeCompare(b.created_at))[0] ??
-    null
-
-  const openReceivablesCount = openReceivables?.length ?? 0
-  const openPayablesCount = openPayables?.length ?? 0
-  const openAccountsCount = openReceivablesCount + openPayablesCount
-
-  const sortedOpenReceivables = [...(openReceivables ?? [])].sort(
-    compareOpenAccountsByUrgency
+  const pendingState = buildPendingReviewState(pending)
+  const openAccountState = buildOpenAccountState([
+    ...openReceivables,
+    ...openPayables,
+  ])
+  const pendingCount = pendingState.totalCount
+  const readyEntries = pendingState.readyEntries
+  const readyCount = pendingState.readyCount
+  const failedEntries = pendingState.failedEntries
+  const failedCount = pendingState.failedCount
+  const processingEntries = pendingState.processingEntries
+  const processingCount = pendingState.processingCount
+  const nextReadyEntry = pendingState.nextReadyEntry
+  const openReceivablesCount = openAccountState.receivableCount
+  const openPayablesCount = openAccountState.payableCount
+  const openAccountsCount = openAccountState.totalCount
+  const overdueOpenAccountsCount = openAccountState.overdueCount
+  const dueTodayOpenAccountsCount = openAccountState.dueTodayCount
+  const nextOpenAccount = openAccountState.nextEntry
+  const usefulPendingItems = buildUsefulPendingItemsState({
+    pendingEntries: pending,
+    openAccountEntries: [...openReceivables, ...openPayables],
+  })
+  const highlightedOpenEntryIds = new Set(
+    isOpenAccountsFocused && statusFilter
+      ? openAccountState.allEntries
+          .filter((entry) => matchesUrgencyFilter(entry.due_on, statusFilter))
+          .map((entry) => entry.id)
+      : []
   )
-
-  const sortedOpenPayables = [...(openPayables ?? [])].sort(
-    compareOpenAccountsByUrgency
-  )
-
-  const overdueOpenAccountsCount = [
-    ...sortedOpenReceivables,
-    ...sortedOpenPayables,
-  ].filter((entry) => getOpenAccountUrgencyMeta(entry.due_on).rank === 0).length
-
-  const nextOpenAccount =
-    [
-      ...(sortedOpenReceivables ?? []).map((entry) => ({
-        ...entry,
-        entry_type: 'sale_due' as const,
-      })),
-      ...(sortedOpenPayables ?? []).map((entry) => ({
-        ...entry,
-        entry_type: 'expense_due' as const,
-      })),
-    ].sort(compareOpenAccountsByUrgency)[0] ?? null
+  const contextTargetId = isPendingReviewFocused
+    ? 'pendentes'
+    : isOpenAccountsFocused
+      ? highlightedOpenEntryIds.size > 0
+        ? `open-account-${Array.from(highlightedOpenEntryIds)[0]}`
+        : 'contas-em-aberto'
+      : null
 
   return (
     <main className={ui.page.shell} data-prumo-mode={isZenMode ? 'zen' : 'default'}>
+      <ContextFocusTarget targetId={contextTargetId} />
+      <AppEventViewTracker
+        eventName="zen_mode_viewed"
+        enabled={isZenMode}
+        onceKey={`zen_mode_viewed:${user.id}`}
+        properties={{
+          source_screen: 'painel',
+          has_completed_first_capture: false,
+        }}
+      />
+
       {shouldCleanLocalFirstCaptureMirror && <FirstCaptureCookieCleaner />}
 
       <div className={isZenMode ? ui.page.containerZen : 'mx-auto max-w-4xl space-y-4'}>
@@ -384,6 +399,7 @@ export default async function PainelPage({
 
         <AudioCaptureCard
           mode={isZenMode ? 'zen' : 'default'}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
           rotatingHints={isZenMode ? ZEN_ROTATING_HINTS : undefined}
           primarySupportText={
             isZenMode ? 'Toque no botão e fale o que aconteceu.' : undefined
@@ -397,6 +413,22 @@ export default async function PainelPage({
 
         {!isZenMode && (
           <>
+            <NotificationSoftPrompt
+              userId={user.id}
+              hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+              usefulItems={{
+                pendingReviewCount: usefulPendingItems.pendingReviewEntries.length,
+                receivableDueTodayCount:
+                  usefulPendingItems.receivableDueTodayEntries.length,
+                receivableOverdueCount:
+                  usefulPendingItems.receivableOverdueEntries.length,
+                payableDueTodayCount:
+                  usefulPendingItems.payableDueTodayEntries.length,
+                payableOverdueCount:
+                  usefulPendingItems.payableOverdueEntries.length,
+              }}
+            />
+
             <FirstCaptureFeedback
               active={showFirstCaptureBanner}
               entryId={firstCaptureFeedbackEntryId}
@@ -417,8 +449,8 @@ export default async function PainelPage({
             <DashboardCollapsibleCard
               id="pendentes"
               className={getPendingCardClass(readyCount, failedCount, processingCount)}
-              title="Revisões pendentes"
-              description="Lançamentos por voz aguardando conferência."
+              title="Pendentes de revisão"
+              description="Revise o que você gravou e deixou para depois."
               badge={pendingCount}
               badgeClassName={getPendingBadgeClass(
                 readyCount,
@@ -427,6 +459,17 @@ export default async function PainelPage({
               )}
               infoLabel="Mais informações sobre revisões pendentes"
               infoContent="Aqui ficam os lançamentos que ainda precisam ser conferidos antes de entrar no resumo financeiro."
+              defaultExpanded={isPendingReviewFocused}
+              highlighted={isPendingReviewFocused}
+              trackOpenEvent={{
+                eventName: 'opened_pending_review_card',
+                properties: {
+                  source_screen: 'painel',
+                  item_type: 'pending_review',
+                  count: pendingState.actionableCount,
+                  has_completed_first_capture: true,
+                },
+              }}
             >
               <div className="space-y-6">
                 {nextReadyEntry && (
@@ -597,17 +640,28 @@ export default async function PainelPage({
               id="contas-em-aberto"
               className={getOpenAccountsCardClass(
                 openAccountsCount,
-                overdueOpenAccountsCount
+                openAccountState.highestUrgency
               )}
               title="Contas em aberto"
-              description="Valores a receber e a pagar, vencidos ou ainda no prazo."
+              description="Veja o que vence hoje, venceu ou ainda está pendente."
               badge={openAccountsCount}
               badgeClassName={getOpenAccountsBadgeClass(
                 openAccountsCount,
-                overdueOpenAccountsCount
+                openAccountState.highestUrgency
               )}
               infoLabel="Mais informações sobre contas em aberto"
               infoContent="Aqui ficam os valores a receber e a pagar que já foram confirmados, mas ainda não foram liquidados."
+              defaultExpanded={isOpenAccountsFocused}
+              highlighted={isOpenAccountsFocused}
+              trackOpenEvent={{
+                eventName: 'opened_open_accounts_card',
+                properties: {
+                  source_screen: 'painel',
+                  count: openAccountsCount,
+                  item_status: openAccountState.highestUrgency ?? undefined,
+                  has_completed_first_capture: true,
+                },
+              }}
             >
               <div className="space-y-6">
                 {nextOpenAccount && (
@@ -616,7 +670,7 @@ export default async function PainelPage({
                       href={`/liquidar/${nextOpenAccount.id}`}
                       className={ui.button.neutral}
                     >
-                      {getOpenAccountQuickActionLabel(nextOpenAccount.entry_type)}
+                      {getOpenAccountQuickActionLabel(nextOpenAccount.item_type)}
                     </Link>
                   </div>
                 )}
@@ -629,6 +683,11 @@ export default async function PainelPage({
                       <span className={ui.badge.danger}>
                         {overdueOpenAccountsCount} vencida
                         {overdueOpenAccountsCount > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {dueTodayOpenAccountsCount > 0 && (
+                      <span className={ui.badge.warning}>
+                        {dueTodayOpenAccountsCount} vence hoje
                       </span>
                     )}
                     {openReceivablesCount > 0 && (
@@ -657,15 +716,23 @@ export default async function PainelPage({
                     <p className={ui.text.muted}>✅ Nenhuma conta em aberto.</p>
                   )}
 
-                {!openReceivablesError && sortedOpenReceivables.length > 0 && (
+                {!openReceivablesError && openAccountState.receivableEntries.length > 0 && (
                   <div>
                     <h3 className={`${ui.text.label} mb-3`}>Receber</h3>
                     <ul className="space-y-3">
-                      {sortedOpenReceivables.map((entry) => {
+                      {openAccountState.receivableEntries.map((entry) => {
                         const urgency = getOpenAccountUrgencyMeta(entry.due_on)
 
                         return (
-                          <li key={entry.id} className={ui.card.muted}>
+                          <li
+                            id={`open-account-${entry.id}`}
+                            key={entry.id}
+                            className={`${ui.card.muted} ${
+                              highlightedOpenEntryIds.has(entry.id)
+                                ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-neutral-50'
+                                : ''
+                            }`}
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className={ui.text.strong}>
@@ -717,15 +784,23 @@ export default async function PainelPage({
                   </div>
                 )}
 
-                {!openPayablesError && sortedOpenPayables.length > 0 && (
+                {!openPayablesError && openAccountState.payableEntries.length > 0 && (
                   <div>
                     <h3 className={`${ui.text.label} mb-3`}>Pagar</h3>
                     <ul className="space-y-3">
-                      {sortedOpenPayables.map((entry) => {
+                      {openAccountState.payableEntries.map((entry) => {
                         const urgency = getOpenAccountUrgencyMeta(entry.due_on)
 
                         return (
-                          <li key={entry.id} className={ui.card.muted}>
+                          <li
+                            id={`open-account-${entry.id}`}
+                            key={entry.id}
+                            className={`${ui.card.muted} ${
+                              highlightedOpenEntryIds.has(entry.id)
+                                ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-neutral-50'
+                                : ''
+                            }`}
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className={ui.text.strong}>

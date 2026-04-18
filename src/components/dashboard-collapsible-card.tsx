@@ -2,6 +2,8 @@
 
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
+import type { AppEventName, AppEventProperties } from '@/lib/app-events'
+import { trackAppEventClient } from '@/lib/app-events-client'
 import { ui } from '@/lib/ui'
 import InfoButton from './info-button'
 
@@ -15,6 +17,11 @@ type DashboardCollapsibleCardProps = {
   infoContent: string
   className: string
   defaultExpanded?: boolean
+  highlighted?: boolean
+  trackOpenEvent?: {
+    eventName: AppEventName
+    properties?: AppEventProperties
+  }
   children: ReactNode
 }
 
@@ -52,12 +59,22 @@ export default function DashboardCollapsibleCard({
   infoContent,
   className,
   defaultExpanded = false,
+  highlighted = false,
+  trackOpenEvent,
   children,
 }: DashboardCollapsibleCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
 
   function toggle() {
-    setIsExpanded((current) => !current)
+    setIsExpanded((current) => {
+      const nextState = !current
+
+      if (nextState && trackOpenEvent) {
+        void trackAppEventClient(trackOpenEvent)
+      }
+
+      return nextState
+    })
   }
 
   function handleClick(event: MouseEvent<HTMLDivElement>) {
@@ -87,7 +104,9 @@ export default function DashboardCollapsibleCard({
       aria-expanded={isExpanded}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      className={`${className} cursor-pointer`}
+      className={`${className} cursor-pointer ${
+        highlighted ? 'ring-2 ring-sky-300 ring-offset-2 ring-offset-neutral-50' : ''
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

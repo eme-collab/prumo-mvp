@@ -5,6 +5,12 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { buildToastHref } from '@/lib/global-toast'
+import { trackAppEventServer } from '@/lib/app-events-server'
+import {
+  getOpenAccountItemType,
+  getOpenAccountUrgencyStatus,
+  getTodayInBrazil,
+} from '@/lib/pending-state'
 import { createClient } from '@/lib/supabase/server'
 import {
   clearFirstCapturePersistFailureSimulation,
@@ -222,17 +228,6 @@ function getSettlementFieldsForEntryType(entryType: string | null) {
   }
 }
 
-function getTodayInSaoPaulo() {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-
-  return formatter.format(new Date())
-}
-
 function canQuickConfirmEntry(entry: {
   review_status: string | null
   processing_status: string | null
@@ -299,12 +294,62 @@ export async function quickConfirmPendingEntry(formData: FormData) {
     throw new Error(error.message)
   }
 
+  await trackAppEventServer({
+    eventName: 'pending_review_resolved',
+    userId: user.id,
+    cookieStore,
+    properties: {
+      source_screen: 'painel',
+      item_type: 'pending_review',
+      count: 1,
+      resolution: 'confirmed',
+      has_completed_first_capture: true,
+      entry_id: id,
+    },
+  })
+
   const firstCaptureUnlock = await finalizeFirstCaptureUnlock({
     supabase,
     userId: user.id,
     source: entry.source,
     cookieStore,
   })
+
+  if (entry.source === 'voice') {
+    if (firstCaptureUnlock.shouldRedirectToUnlockedPanel) {
+      await trackAppEventServer({
+        eventName: 'first_record_confirmed',
+        userId: user.id,
+        cookieStore,
+        properties: {
+          source_screen: 'painel',
+          has_completed_first_capture: true,
+          entry_id: id,
+        },
+      })
+      await trackAppEventServer({
+        eventName: 'zen_mode_completed',
+        userId: user.id,
+        cookieStore,
+        properties: {
+          source_screen: 'painel',
+          has_completed_first_capture: true,
+          entry_id: id,
+        },
+      })
+    } else {
+      await trackAppEventServer({
+        eventName: 'record_confirmed',
+        userId: user.id,
+        cookieStore,
+        properties: {
+          source_screen: 'painel',
+          has_completed_first_capture: true,
+          entry_id: id,
+        },
+      })
+    }
+  }
 
   revalidatePath('/painel')
   revalidatePath('/resumo')
@@ -362,7 +407,9 @@ export async function quickSettleOpenAccount(formData: FormData) {
 
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
-    .select('id, user_id, review_status, settlement_status, entry_type, amount')
+    .select(
+      'id, user_id, review_status, settlement_status, entry_type, amount, due_on'
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -374,7 +421,7 @@ export async function quickSettleOpenAccount(formData: FormData) {
     redirect('/painel')
   }
 
-  const today = getTodayInSaoPaulo()
+  const today = getTodayInBrazil()
 
   const { error } = await supabase
     .from('financial_entries')
@@ -389,6 +436,27 @@ export async function quickSettleOpenAccount(formData: FormData) {
 
   if (error) {
     throw new Error(error.message)
+  }
+
+  const itemType = getOpenAccountItemType(entry.entry_type)
+
+  if (itemType) {
+    await trackAppEventServer({
+      eventName:
+        itemType === 'receivable'
+          ? 'receivable_marked_resolved'
+          : 'payable_marked_resolved',
+      userId: user.id,
+      properties: {
+        source_screen: 'painel',
+        item_type: itemType,
+        item_status: getOpenAccountUrgencyStatus(entry.due_on),
+        count: 1,
+        resolution: 'settled',
+        entry_id: id,
+        has_completed_first_capture: true,
+      },
+    })
   }
 
   revalidatePath('/painel')

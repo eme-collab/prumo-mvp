@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import InstallAppCard from '@/components/install-app-card'
+import { trackAppEventClient } from '@/lib/app-events-client'
 import { createClient } from '@/lib/supabase/client'
 import { ui } from '@/lib/ui'
 
@@ -30,6 +31,13 @@ export default function LoginClient() {
     setError('')
 
     const origin = window.location.origin
+
+    await trackAppEventClient({
+      eventName: 'login_started',
+      properties: {
+        source_screen: 'login',
+      },
+    })
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
