@@ -10,6 +10,7 @@ import {
   getOpenAccountItemType,
   getOpenAccountUrgencyStatus,
   getTodayInBrazil,
+  isOpenAccount,
 } from '@/lib/pending-state'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -246,6 +247,171 @@ function canQuickConfirmEntry(entry: {
   )
 }
 
+async function revalidateEntrySurfaces(entryId: string) {
+  revalidatePath('/painel')
+  revalidatePath('/resumo')
+  revalidatePath(`/revisar/${entryId}`)
+  revalidatePath(`/liquidar/${entryId}`)
+}
+
+export async function quickDiscardPendingEntry(formData: FormData) {
+  const supabase = await createClient()
+  const cookieStore = await cookies()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const id = getString(formData, 'id')
+
+  if (!id) {
+    redirect('/painel?focus=pending_review')
+  }
+
+  const { data: entry, error: entryError } = await supabase
+    .from('financial_entries')
+    .select('id, user_id, review_status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (entryError) {
+    throw new Error(entryError.message)
+  }
+
+  if (!entry || entry.user_id !== user.id || entry.review_status !== 'pending') {
+    redirect('/painel?focus=pending_review')
+  }
+
+  const { error } = await supabase
+    .from('financial_entries')
+    .update({
+      review_status: 'discarded',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('review_status', 'pending')
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  await trackAppEventServer({
+    eventName: 'pending_review_resolved',
+    userId: user.id,
+    cookieStore,
+    properties: {
+      source_screen: 'painel',
+      item_type: 'pending_review',
+      count: 1,
+      resolution: 'discarded',
+      entry_id: id,
+      has_completed_first_capture: true,
+    },
+  })
+
+  await revalidateEntrySurfaces(id)
+
+  redirect(
+    buildToastHref('/painel?focus=pending_review', {
+      kind: 'entry_discarded',
+      undo: 'undo_review_discard',
+      entryId: id,
+    })
+  )
+}
+
+export async function quickDeleteOpenAccountEntry(formData: FormData) {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const id = getString(formData, 'id')
+
+  if (!id) {
+    redirect('/painel?focus=open_accounts')
+  }
+
+  const { data: entry, error: entryError } = await supabase
+    .from('financial_entries')
+    .select(
+      'id, user_id, review_status, audio_path, entry_type, settlement_status, due_on'
+    )
+    .eq('id', id)
+    .maybeSingle()
+
+  if (entryError) {
+    throw new Error(entryError.message)
+  }
+
+  if (
+    !entry ||
+    entry.user_id !== user.id ||
+    !isOpenAccount(entry.entry_type, entry.review_status, entry.settlement_status)
+  ) {
+    redirect('/painel?focus=open_accounts')
+  }
+
+  const { error } = await supabase
+    .from('financial_entries')
+    .delete()
+    .eq('id', id)
+    .eq('review_status', 'confirmed')
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const itemType = getOpenAccountItemType(entry.entry_type)
+
+  if (itemType) {
+    await trackAppEventServer({
+      eventName:
+        itemType === 'receivable'
+          ? 'receivable_marked_resolved'
+          : 'payable_marked_resolved',
+      userId: user.id,
+      properties: {
+        source_screen: 'painel',
+        item_type: itemType,
+        item_status: getOpenAccountUrgencyStatus(entry.due_on),
+        count: 1,
+        resolution: 'deleted',
+        entry_id: id,
+        has_completed_first_capture: true,
+      },
+    })
+  }
+
+  if (entry.audio_path) {
+    const { error: storageError } = await supabase.storage
+      .from('voice-notes')
+      .remove([entry.audio_path])
+
+    if (storageError) {
+      console.error('Falha ao remover audio excluido:', storageError.message)
+    }
+  }
+
+  await revalidateEntrySurfaces(id)
+
+  redirect(
+    buildToastHref('/painel?focus=open_accounts', {
+      kind: 'entry_deleted',
+      entryId: id,
+    })
+  )
+}
+
 export async function quickConfirmPendingEntry(formData: FormData) {
   const supabase = await createClient()
   const cookieStore = await cookies()
@@ -351,10 +517,7 @@ export async function quickConfirmPendingEntry(formData: FormData) {
     }
   }
 
-  revalidatePath('/painel')
-  revalidatePath('/resumo')
-  revalidatePath(`/revisar/${id}`)
-  revalidatePath(`/liquidar/${id}`)
+  await revalidateEntrySurfaces(id)
 
   if (firstCaptureUnlock.shouldRedirectToUnlockedPanel) {
     redirect(
@@ -459,10 +622,7 @@ export async function quickSettleOpenAccount(formData: FormData) {
     })
   }
 
-  revalidatePath('/painel')
-  revalidatePath('/resumo')
-  revalidatePath(`/revisar/${id}`)
-  revalidatePath(`/liquidar/${id}`)
+  await revalidateEntrySurfaces(id)
 
   redirect(
     buildToastHref('/painel', {

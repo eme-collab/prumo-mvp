@@ -1,7 +1,11 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import AppShellHeader from '@/components/app-shell-header'
+import { getNotificationUsefulItemsState } from '@/lib/notification-menu-state'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
+import { resolveFirstCaptureState } from '@/lib/user-app-state'
 import { createManualEntry } from './actions'
 
 function getErrorMessage(error?: string) {
@@ -33,19 +37,30 @@ export default async function RevisarManualPage({
     redirect('/login')
   }
 
+  const cookieStore = await cookies()
+  const firstCaptureState = await resolveFirstCaptureState({
+    supabase,
+    userId: user.id,
+    cookieStore,
+  })
+  const usefulItems = await getNotificationUsefulItemsState(supabase, user.id)
+
   const today = new Date().toISOString().slice(0, 10)
 
   return (
     <main className={ui.page.shell}>
       <div className={ui.page.containerNarrow}>
-        <div className={ui.card.base}>
-          <Link href="/painel" className="text-sm underline">
-            Voltar para o painel
-          </Link>
+        <AppShellHeader
+          userId={user.id}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+          isZenMode={!firstCaptureState.hasCompletedFirstCapture}
+          usefulItems={usefulItems}
+          actionHref="/painel"
+          actionLabel="Painel"
+        />
 
-          <h1 className="mt-4 text-2xl font-semibold">
-            Novo lançamento manual
-          </h1>
+        <div className={ui.card.base}>
+          <h1 className="text-2xl font-semibold">Novo lançamento manual</h1>
 
           <p className="mt-2 text-sm text-neutral-600">
             Preencha os dados diretamente. O botão principal salva e confirma o

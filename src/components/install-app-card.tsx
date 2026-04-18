@@ -80,8 +80,8 @@ function wasDismissedRecently() {
 }
 
 export default function InstallAppCard({
-  title = 'Instalar app',
-  subtitle = 'Abra o Prumo como app no celular.',
+  title = 'Instale o Prumo no celular',
+  subtitle = 'Abra mais rápido e volte direto para o registro por voz.',
   installLabel = 'Instalar',
   presentation = 'card',
   requirePrompt = false,
@@ -173,13 +173,24 @@ export default function InstallAppCard({
   }
 
   const isInline = presentation === 'inline'
-  const containerClassName = isInline ? 'border-t border-neutral-200 pt-4' : ui.card.muted
+  const containerClassName = isInline
+    ? 'border-t border-neutral-200 pt-4'
+    : 'rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm'
 
   return (
     <div className={containerClassName}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className={isInline ? 'text-sm font-semibold text-neutral-900' : ui.text.sectionTitle}>
+          {!isInline && (
+            <span className="rounded-full border border-sky-200 bg-white px-3 py-1 text-xs font-medium text-sky-700">
+              Acesso rápido
+            </span>
+          )}
+          <h2
+            className={`${
+              isInline ? 'text-sm font-semibold text-neutral-900' : ui.text.sectionTitle
+            } ${!isInline ? 'mt-3' : ''}`}
+          >
             {title}
           </h2>
           <p className={`mt-1 ${isInline ? ui.text.muted : ui.text.subtle}`}>
@@ -200,12 +211,12 @@ export default function InstallAppCard({
       </div>
 
       {deferredPrompt ? (
-        <div className={`mt-4 flex flex-wrap gap-3 ${isInline ? '' : ''}`}>
+        <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
             onClick={handleInstallClick}
             disabled={isInstalling}
-            className={isInline ? `w-full ${ui.button.secondary}` : ui.button.neutral}
+            className={isInline ? `w-full ${ui.button.secondary}` : ui.button.primary}
           >
             {isInstalling ? 'Abrindo...' : installLabel}
           </button>
@@ -214,14 +225,14 @@ export default function InstallAppCard({
             <button
               type="button"
               onClick={dismissCard}
-              className={ui.button.neutral}
+              className={isInline ? ui.button.neutral : ui.button.secondary}
             >
               Depois
             </button>
           )}
         </div>
       ) : (
-        <div className="mt-4 rounded-lg border border-neutral-200 bg-white px-3 py-3">
+        <div className="mt-4 rounded-xl border border-sky-200 bg-white px-4 py-3">
           <p className={ui.text.body}>
             No iPhone ou iPad, use Compartilhar e depois Adicionar à Tela de
             Início.

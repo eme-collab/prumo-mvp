@@ -93,12 +93,16 @@ export default function AudioCaptureCard({
   const recordingStartedAtRef = useRef<number | null>(null)
   const recordingIntervalRef = useRef<number | null>(null)
   const rotatingHintIntervalRef = useRef<number | null>(null)
+  const discardRecordingOnStopRef = useRef(false)
+  const activeSubmissionEntryIdRef = useRef<string | null>(null)
 
   const [isRecording, setIsRecording] = useState(false)
   const [isSubmittingCapture, setIsSubmittingCapture] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [queueMessage, setQueueMessage] = useState<string | null>(null)
+  const [submissionState, setSubmissionState] = useState<
+    'idle' | 'processing' | 'ready'
+  >('idle')
   const [lastEntryId, setLastEntryId] = useState<string | null>(null)
   const [rotatingHintIndex, setRotatingHintIndex] = useState(0)
   const safeRotatingHints =
@@ -181,9 +185,20 @@ export default function AudioCaptureCard({
         )
       }
 
+      if (activeSubmissionEntryIdRef.current === entryId) {
+        setSubmissionState('ready')
+      }
       router.refresh()
     } catch (processingError) {
       console.error('Erro no processamento em segundo plano:', processingError)
+      if (activeSubmissionEntryIdRef.current === entryId) {
+        setSubmissionState('idle')
+        setError(
+          processingError instanceof Error
+            ? processingError.message
+            : 'Falha ao processar o lançamento.'
+        )
+      }
       router.refresh()
     }
   }
@@ -192,8 +207,9 @@ export default function AudioCaptureCard({
     try {
       setIsSubmittingCapture(true)
       setError(null)
-      setQueueMessage(null)
+      setSubmissionState('idle')
       setLastEntryId(null)
+      activeSubmissionEntryIdRef.current = null
 
       const supabase = createClient()
 
@@ -244,7 +260,8 @@ export default function AudioCaptureCard({
       }
 
       setLastEntryId(insertedEntry.id)
-      setQueueMessage('Áudio enviado.')
+      setSubmissionState('processing')
+      activeSubmissionEntryIdRef.current = insertedEntry.id
 
       void trackAppEventClient({
         eventName: hasCompletedFirstCapture
@@ -263,6 +280,8 @@ export default function AudioCaptureCard({
       void runBackgroundProcessing(insertedEntry.id)
     } catch (submitError) {
       console.error(submitError)
+      setSubmissionState('idle')
+      activeSubmissionEntryIdRef.current = null
       setError(
         submitError instanceof Error
           ? submitError.message
@@ -276,7 +295,10 @@ export default function AudioCaptureCard({
   async function startRecording() {
     try {
       setError(null)
-      setQueueMessage(null)
+      setSubmissionState('idle')
+      setLastEntryId(null)
+      activeSubmissionEntryIdRef.current = null
+      discardRecordingOnStopRef.current = false
 
       if (!navigator.mediaDevices?.getUserMedia) {
         setError(
@@ -302,13 +324,24 @@ export default function AudioCaptureCard({
       }
 
       recorder.onstop = async () => {
-        try {
-          const finalMimeType = recorder.mimeType || mimeType || 'audio/webm'
-          const blob = new Blob(chunksRef.current, { type: finalMimeType })
+        const shouldDiscardRecording = discardRecordingOnStopRef.current
+        discardRecordingOnStopRef.current = false
 
+        try {
           stopCurrentStream()
           stopRecordingTimer()
           setIsRecording(false)
+          mediaRecorderRef.current = null
+
+          const recordedChunks = chunksRef.current
+          chunksRef.current = []
+
+          if (shouldDiscardRecording) {
+            return
+          }
+
+          const finalMimeType = recorder.mimeType || mimeType || 'audio/webm'
+          const blob = new Blob(recordedChunks, { type: finalMimeType })
 
           if (blob.size === 0) {
             throw new Error('O áudio gravado ficou vazio.')
@@ -360,6 +393,17 @@ export default function AudioCaptureCard({
     recorder.stop()
   }
 
+  function cancelRecording() {
+    const recorder = mediaRecorderRef.current
+
+    if (!recorder) return
+    if (recorder.state !== 'recording') return
+
+    discardRecordingOnStopRef.current = true
+    setError(null)
+    recorder.stop()
+  }
+
   function handleMainButtonClick() {
     if (isSubmittingCapture) return
 
@@ -373,7 +417,7 @@ export default function AudioCaptureCard({
 
   function getMainButtonLabel() {
     if (isSubmittingCapture) return 'Enviando áudio...'
-    if (isRecording) return 'Parar gravação'
+    if (isRecording) return 'Encerrar e enviar'
     return 'Gravar lançamento'
   }
 
@@ -383,7 +427,7 @@ export default function AudioCaptureCard({
     }
 
     if (isRecording) {
-      return 'Toque novamente para encerrar o áudio.'
+      return 'Quando terminar, envie o áudio ou cancele para descartar a gravação.'
     }
 
     return 'Fale um lançamento por vez.'
@@ -457,18 +501,51 @@ export default function AudioCaptureCard({
         </button>
 
         <p className={`mt-2 ${ui.text.helper}`}>{getSupportText()}</p>
+
+        {isRecording && (
+          <button
+            type="button"
+            onClick={cancelRecording}
+            disabled={isSubmittingCapture}
+            className={`mt-3 w-full ${ui.button.danger}`}
+          >
+            Cancelar gravação
+          </button>
+        )}
       </div>
 
-      {queueMessage && (
+      {submissionState === 'processing' && (
+        <div className={`mt-4 ${ui.card.warning}`}>
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 inline-flex h-4 w-4 animate-spin rounded-full border-2 border-amber-700 border-t-transparent" />
+
+            <div>
+              <p className="text-sm font-medium text-amber-900">
+                Seu áudio está sendo processado.
+              </p>
+              <p className="mt-2 text-sm text-amber-800">
+                Você pode gravar o próximo. Quando ficar pronto, ele entra em
+                pendentes para revisão.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submissionState === 'ready' && lastEntryId && (
         <div className={`mt-4 ${ui.card.success}`}>
-          <p className="text-sm font-medium">{queueMessage}</p>
+          <p className="text-sm font-medium text-green-800">
+            Lançamento pronto para revisão.
+          </p>
+          <p className="mt-2 text-sm text-green-700">
+            Ele já entrou em pendentes. Você pode revisar agora ou continuar
+            gravando.
+          </p>
 
           <div className="mt-3 flex flex-wrap gap-3">
-            {lastEntryId && (
-              <Link href={`/revisar/${lastEntryId}`} className={ui.button.secondary}>
-                Revisar
-              </Link>
-            )}
+            <Link href={`/revisar/${lastEntryId}`} className={ui.button.secondary}>
+              Revisar agora
+            </Link>
           </div>
         </div>
       )}

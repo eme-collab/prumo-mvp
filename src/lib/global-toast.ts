@@ -26,48 +26,61 @@ export type GlobalToastUndo =
 type GlobalToastDefinition = {
   message: string
   undoLabel?: string
+  tone: 'info' | 'success' | 'warning'
 }
 
 const TOAST_DEFINITIONS: Record<GlobalToastKind, GlobalToastDefinition> = {
   entry_confirmed: {
-    message: 'Lançamento confirmado.',
+    message: 'Pronto. Lançamento confirmado.',
     undoLabel: 'Desfazer',
+    tone: 'success',
   },
   entry_discarded: {
-    message: 'Lançamento descartado.',
+    message: 'Tudo certo. Lançamento descartado.',
     undoLabel: 'Desfazer',
+    tone: 'warning',
   },
   entry_saved: {
-    message: 'Lançamento salvo para depois.',
+    message: 'Salvo para revisar depois.',
+    tone: 'info',
   },
   entry_updated: {
     message: 'Movimentação atualizada.',
+    tone: 'success',
   },
   entry_deleted: {
     message: 'Movimentação excluída.',
+    tone: 'warning',
   },
   first_capture_confirmed: {
     message: 'Pronto. Ficou salvo.',
+    tone: 'success',
   },
   receipt_confirmed: {
-    message: 'Recebimento confirmado.',
+    message: 'Pronto. Recebimento confirmado.',
     undoLabel: 'Desfazer',
+    tone: 'success',
   },
   payment_confirmed: {
-    message: 'Pagamento confirmado.',
+    message: 'Pronto. Pagamento confirmado.',
     undoLabel: 'Desfazer',
+    tone: 'success',
   },
   manual_confirmed: {
-    message: 'Lançamento confirmado.',
+    message: 'Pronto. Lançamento confirmado.',
+    tone: 'success',
   },
   manual_pending: {
-    message: 'Lançamento salvo para revisar.',
+    message: 'Salvo para revisar.',
+    tone: 'info',
   },
   entry_reopened: {
     message: 'Lançamento voltou para pendentes.',
+    tone: 'info',
   },
   settlement_reopened: {
     message: 'Conta voltou para em aberto.',
+    tone: 'info',
   },
 }
 
@@ -137,6 +150,7 @@ export function getGlobalToastFromSearchParams(
   return {
     kind,
     message: definition.message,
+    tone: definition.tone,
     entryId,
     undo: resolvedUndo,
     undoLabel: resolvedUndo ? definition.undoLabel : null,

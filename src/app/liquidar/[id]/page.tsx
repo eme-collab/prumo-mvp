@@ -1,12 +1,16 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
+import AppShellHeader from '@/components/app-shell-header'
 import {
   getEntryTypeLabel,
   getSettlementStatusLabel,
 } from '@/lib/financial-entry-labels'
 import { formatCurrency } from '@/lib/month-period'
+import { getNotificationUsefulItemsState } from '@/lib/notification-menu-state'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
+import { resolveFirstCaptureState } from '@/lib/user-app-state'
 import { settleEntry } from './actions'
 
 function getErrorMessage(error?: string) {
@@ -107,6 +111,14 @@ export default async function LiquidarEntryPage({
     redirect('/login')
   }
 
+  const cookieStore = await cookies()
+  const firstCaptureState = await resolveFirstCaptureState({
+    supabase,
+    userId: user.id,
+    cookieStore,
+  })
+  const usefulItems = await getNotificationUsefulItemsState(supabase, user.id)
+
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
     .select(
@@ -138,14 +150,17 @@ export default async function LiquidarEntryPage({
   return (
     <main className={ui.page.shell}>
       <div className={ui.page.containerNarrow}>
-        <div className={ui.card.base}>
-          <Link href="/painel" className="text-sm underline">
-            Voltar para o painel
-          </Link>
+        <AppShellHeader
+          userId={user.id}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+          isZenMode={!firstCaptureState.hasCompletedFirstCapture}
+          usefulItems={usefulItems}
+          actionHref="/painel"
+          actionLabel="Painel"
+        />
 
-          <h1 className={`mt-4 ${ui.text.pageTitle}`}>
-            {getTitle(entry.entry_type)}
-          </h1>
+        <div className={ui.card.base}>
+          <h1 className={ui.text.pageTitle}>{getTitle(entry.entry_type)}</h1>
 
           <p className={`mt-2 ${ui.text.muted}`}>
             {getIntroMessage(entry.entry_type)}

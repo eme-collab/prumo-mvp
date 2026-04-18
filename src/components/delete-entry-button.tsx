@@ -4,6 +4,8 @@ import { useFormStatus } from 'react-dom'
 
 type DeleteEntryButtonProps = {
   confirmMessage?: string
+  label?: string
+  title?: string
 }
 
 function TrashIcon() {
@@ -29,6 +31,8 @@ function TrashIcon() {
 
 export default function DeleteEntryButton({
   confirmMessage = 'Excluir esta movimentação? Essa ação não pode ser desfeita.',
+  label = 'Excluir movimentação',
+  title = 'Excluir movimentação',
 }: DeleteEntryButtonProps) {
   const { pending } = useFormStatus()
 
@@ -50,8 +54,8 @@ export default function DeleteEntryButton({
   return (
     <button
       type="button"
-      aria-label="Excluir movimentação"
-      title="Excluir movimentação"
+      aria-label={label}
+      title={title}
       disabled={pending}
       onClick={handleClick}
       className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"

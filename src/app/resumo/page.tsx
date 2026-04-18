@@ -1,10 +1,12 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import AppEventViewTracker from '@/components/app-event-view-tracker'
 import ContextFocusTarget from '@/components/context-focus-target'
 import DeleteEntryButton from '@/components/delete-entry-button'
-import NotificationPreferencesCard from '@/components/notification-preferences-card'
+import AppShellHeader from '@/components/app-shell-header'
 import { deleteResumoEntry } from '@/app/resumo/actions'
+import { getNotificationUsefulItemsState } from '@/lib/notification-menu-state'
 import { buildResumoEditHref, buildResumoHref } from '@/lib/resumo-navigation'
 import {
   buildOpenAccountState,
@@ -14,6 +16,7 @@ import { formatCurrency, getMonthPeriod } from '@/lib/month-period'
 import { createClient } from '@/lib/supabase/server'
 import { ui } from '@/lib/ui'
 import { getUrgencyBadgeClass } from '@/lib/financial-entry-labels'
+import { resolveFirstCaptureState } from '@/lib/user-app-state'
 
 type CashEntry = {
   id: string
@@ -137,6 +140,14 @@ export default async function ResumoPage({
   if (!user) {
     redirect('/login')
   }
+
+  const cookieStore = await cookies()
+  const firstCaptureState = await resolveFirstCaptureState({
+    supabase,
+    userId: user.id,
+    cookieStore,
+  })
+  const usefulItems = await getNotificationUsefulItemsState(supabase, user.id)
 
   const [
     receivedCashResult,
@@ -303,14 +314,19 @@ export default async function ResumoPage({
       <ContextFocusTarget targetId={focusTargetId} />
 
       <div className={ui.page.container}>
+        <AppShellHeader
+          userId={user.id}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+          isZenMode={!firstCaptureState.hasCompletedFirstCapture}
+          usefulItems={usefulItems}
+          actionHref="/painel"
+          actionLabel="Painel"
+        />
+
         <div className={ui.card.base}>
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <Link href="/painel" className="text-sm underline">
-                Voltar para o painel
-              </Link>
-
-              <h1 className={`mt-4 ${ui.text.pageTitle}`}>Resumo financeiro</h1>
+              <h1 className={ui.text.pageTitle}>Resumo financeiro</h1>
 
               <p className={`mt-2 ${ui.text.muted}`}>
                 Resumo mensal baseado em lançamentos confirmados e liquidações
@@ -627,9 +643,6 @@ export default async function ResumoPage({
           </details>
         </div>
 
-        <div className="pt-2">
-          <NotificationPreferencesCard hasCompletedFirstCapture />
-        </div>
       </div>
     </main>
   )

@@ -1,10 +1,13 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import type { ReactNode } from 'react'
 import AppEventViewTracker from '@/components/app-event-view-tracker'
+import AppShellHeader from '@/components/app-shell-header'
 import AudioCaptureCard from '@/components/audio-capture-card'
 import ContextFocusTarget from '@/components/context-focus-target'
 import DashboardCollapsibleCard from '@/components/dashboard-collapsible-card'
+import DeleteEntryButton from '@/components/delete-entry-button'
 import FirstCaptureCookieCleaner from '@/components/first-capture-cookie-cleaner'
 import FirstCaptureFeedback from '@/components/first-capture-feedback'
 import FirstCaptureValidationPanel from '@/components/first-capture-validation-panel'
@@ -34,9 +37,10 @@ import {
   retryPersistFirstCaptureFromLocalMirror,
 } from '@/lib/user-app-state'
 import {
+  quickDeleteOpenAccountEntry,
+  quickDiscardPendingEntry,
   quickConfirmPendingEntry,
   quickSettleOpenAccount,
-  signOut,
 } from './actions'
 
 const ZEN_ROTATING_HINTS = [
@@ -46,6 +50,105 @@ const ZEN_ROTATING_HINTS = [
   'Paguei 60 reais de combustível',
   'Cliente Ana me deve 300 até sexta',
 ]
+
+function ReviewIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z" />
+      <circle cx="10" cy="10" r="2.2" />
+    </svg>
+  )
+}
+
+function SettleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6.5h14" />
+      <path d="M5.5 4.5h9a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 14.5 15.5h-9A1.5 1.5 0 0 1 4 14V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <path d="m7.5 10 1.5 1.5 3.5-3.5" />
+    </svg>
+  )
+}
+
+function ActionIconLink({
+  href,
+  label,
+  children,
+}: {
+  href: string
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      className={ui.button.icon}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </Link>
+  )
+}
+
+function formatOptionalCurrency(amount: number | null | undefined) {
+  return amount !== null && amount !== undefined ? formatCurrency(amount) : '-'
+}
+
+function getPendingPrimaryText(entry: {
+  description: string | null
+  transcript: string | null
+  audio_path: string | null
+  source: string | null
+}) {
+  if (entry.description) {
+    return entry.description
+  }
+
+  if (entry.transcript) {
+    return entry.transcript
+  }
+
+  if (entry.audio_path) {
+    return entry.source === 'manual'
+      ? 'Lançamento manual pendente'
+      : 'Áudio pendente de revisão'
+  }
+
+  return 'Lançamento pendente'
+}
+
+function getPendingMetaLines(entry: {
+  entry_type: string | null
+  amount: number | null
+  occurred_on: string | null
+  source: string | null
+}) {
+  return [
+    `Tipo: ${getEntryTypeLabel(entry.entry_type)}`,
+    `Valor: ${formatOptionalCurrency(entry.amount)}`,
+    `Data: ${entry.occurred_on ?? '-'}`,
+    `Origem: ${entry.source === 'manual' ? 'Manual' : 'Voz'}`,
+  ]
+}
 
 function getPendingCardClass(
   readyCount: number,
@@ -100,8 +203,8 @@ function getProcessingLabel(processingStatus: string | null | undefined) {
 }
 
 function getPendingActionLabel(processingStatus: string | null | undefined) {
-  if (processingStatus === 'uploaded' || processingStatus === 'transcribing' || processingStatus === 'parsing') {
-    return 'Ver andamento'
+  if (processingStatus === 'failed') {
+    return 'Revisar pelo áudio'
   }
 
   return 'Revisar lançamento'
@@ -123,8 +226,12 @@ function canQuickConfirmPendingEntry(entry: {
   )
 }
 
-function getOpenAccountReviewLabel() {
-  return 'Revisar'
+function getOpenAccountReviewLabel(itemType: 'receivable' | 'payable') {
+  if (itemType === 'receivable') {
+    return 'Revisar recebimento'
+  }
+
+  return 'Revisar pagamento'
 }
 
 function canQuickSettleOpenAccount(entry: {
@@ -373,29 +480,24 @@ export default async function PainelPage({
       {shouldCleanLocalFirstCaptureMirror && <FirstCaptureCookieCleaner />}
 
       <div className={isZenMode ? ui.page.containerZen : 'mx-auto max-w-4xl space-y-4'}>
-        <div className={ui.card.base}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className={ui.text.sectionTitle}>Prumo</h1>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {!isZenMode && (
-                <Link
-                  href="/resumo"
-                  className="inline-flex items-center justify-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 active:scale-[0.99]"
-                >
-                  Resumo
-                </Link>
-              )}
-
-              <form action={signOut}>
-                <button className="inline-flex items-center justify-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 active:scale-[0.99]">
-                  Sair
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
+        <AppShellHeader
+          userId={user.id}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+          isZenMode={isZenMode}
+          usefulItems={{
+            pendingReviewCount: usefulPendingItems.pendingReviewEntries.length,
+            receivableDueTodayCount:
+              usefulPendingItems.receivableDueTodayEntries.length,
+            receivableOverdueCount:
+              usefulPendingItems.receivableOverdueEntries.length,
+            payableDueTodayCount:
+              usefulPendingItems.payableDueTodayEntries.length,
+            payableOverdueCount:
+              usefulPendingItems.payableOverdueEntries.length,
+          }}
+          actionHref={!isZenMode ? '/resumo' : null}
+          actionLabel={!isZenMode ? 'Resumo' : null}
+        />
 
         <AudioCaptureCard
           mode={isZenMode ? 'zen' : 'default'}
@@ -413,6 +515,8 @@ export default async function PainelPage({
 
         {!isZenMode && (
           <>
+            <InstallAppCard />
+
             <NotificationSoftPrompt
               userId={user.id}
               hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
@@ -517,51 +621,45 @@ export default async function PainelPage({
                     <ul className="space-y-3">
                       {readyEntries.map((entry) => (
                         <li key={entry.id} className={ui.card.muted}>
-                          <p className={ui.text.body}>
-                            {entry.transcript
-                              ? entry.transcript
-                              : entry.audio_path
-                                ? 'Áudio processado e pronto para revisão.'
-                                : 'Lançamento manual pronto para revisão.'}
-                          </p>
-
-                          <p className={`mt-2 ${ui.text.subtle}`}>
-                            {entry.source === 'manual' ? 'Manual' : 'Voz'} •{' '}
-                            {entry.occurred_on ?? 'Sem data'}
-                          </p>
-
-                          {(entry.entry_type ||
-                            entry.amount !== null ||
-                            entry.description) && (
-                            <div className={`mt-3 ${ui.card.inner}`}>
-                              <p className={ui.text.subtle}>
-                                {getEntryTypeLabel(entry.entry_type)} •{' '}
-                                {entry.amount !== null
-                                  ? formatCurrency(entry.amount)
-                                  : '-'}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className={ui.text.strong}>
+                                {getPendingPrimaryText(entry)}
                               </p>
-                              {entry.description && (
-                                <p className={`mt-1 ${ui.text.subtle}`}>
-                                  {entry.description}
-                                </p>
-                              )}
+
+                              <div className="mt-2 space-y-1">
+                                {getPendingMetaLines(entry).map((line) => (
+                                  <p key={line} className={ui.text.subtle}>
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
                             </div>
-                          )}
 
-                          <div className="mt-3 flex items-center gap-2">
-                            <Link
-                              href={`/revisar/${entry.id}`}
-                              className={ui.button.neutral}
-                            >
-                              {getPendingActionLabel(entry.processing_status)}
-                            </Link>
+                            <div className="flex shrink-0 items-center gap-2 self-start">
+                              <ActionIconLink
+                                href={`/revisar/${entry.id}`}
+                                label={getPendingActionLabel(entry.processing_status)}
+                              >
+                                <ReviewIcon />
+                              </ActionIconLink>
 
-                            {canQuickConfirmPendingEntry(entry) && (
-                              <form action={quickConfirmPendingEntry}>
+                              {canQuickConfirmPendingEntry(entry) && (
+                                <form action={quickConfirmPendingEntry}>
+                                  <input type="hidden" name="id" value={entry.id} />
+                                  <QuickConfirmPendingButton />
+                                </form>
+                              )}
+
+                              <form action={quickDiscardPendingEntry}>
                                 <input type="hidden" name="id" value={entry.id} />
-                                <QuickConfirmPendingButton />
+                                <DeleteEntryButton
+                                  label="Descartar lançamento pendente"
+                                  title="Descartar lançamento pendente"
+                                  confirmMessage="Descartar este lançamento pendente?"
+                                />
                               </form>
-                            )}
+                            </div>
                           </div>
                         </li>
                       ))}
@@ -575,28 +673,43 @@ export default async function PainelPage({
                     <ul className="space-y-3">
                       {failedEntries.map((entry) => (
                         <li key={entry.id} className={ui.card.muted}>
-                          <p className={ui.text.body}>
-                            {entry.transcript
-                              ? entry.transcript
-                              : entry.audio_path
-                                ? 'Falha no processamento automático.'
-                                : 'Sem transcrição'}
-                          </p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className={ui.text.strong}>
+                                {getPendingPrimaryText(entry)}
+                              </p>
 
-                          <p className={`mt-2 ${ui.text.subtle}`}>
-                            {entry.source === 'manual' ? 'Manual' : 'Voz'}
-                          </p>
+                              <div className="mt-2 space-y-1">
+                                {getPendingMetaLines(entry).map((line) => (
+                                  <p key={line} className={ui.text.subtle}>
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
 
-                          <p className="mt-1 text-xs text-red-600">
-                            {entry.processing_error ?? 'Erro desconhecido'}
-                          </p>
+                              <p className="mt-2 text-xs text-red-600">
+                                {entry.processing_error ?? 'Erro desconhecido'}
+                              </p>
+                            </div>
 
-                          <Link
-                            href={`/revisar/${entry.id}`}
-                            className={`mt-3 ${ui.button.neutral}`}
-                          >
-                            {getPendingActionLabel(entry.processing_status)}
-                          </Link>
+                            <div className="flex shrink-0 items-center gap-2 self-start">
+                              <ActionIconLink
+                                href={`/revisar/${entry.id}`}
+                                label={getPendingActionLabel(entry.processing_status)}
+                              >
+                                <ReviewIcon />
+                              </ActionIconLink>
+
+                              <form action={quickDiscardPendingEntry}>
+                                <input type="hidden" name="id" value={entry.id} />
+                                <DeleteEntryButton
+                                  label="Descartar lançamento pendente"
+                                  title="Descartar lançamento pendente"
+                                  confirmMessage="Descartar este lançamento pendente?"
+                                />
+                              </form>
+                            </div>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -606,28 +719,45 @@ export default async function PainelPage({
                 {!pendingError && processingEntries.length > 0 && (
                   <div>
                     <h3 className={`${ui.text.label} mb-3`}>Processando</h3>
+                    <div className={`mb-3 ${ui.card.inner}`}>
+                      <p className={ui.text.body}>
+                        Seus áudios ainda estão sendo processados.
+                      </p>
+                      <p className={`mt-1 ${ui.text.subtle}`}>
+                        Você pode gravar o próximo. Quando ficarem prontos, eles
+                        entram em pendentes para revisão.
+                      </p>
+                    </div>
                     <ul className="space-y-3">
                       {processingEntries.map((entry) => (
                         <li key={entry.id} className={ui.card.muted}>
-                          <p className={ui.text.body}>
-                            {entry.transcript
-                              ? entry.transcript
-                              : entry.audio_path
-                                ? 'Áudio enviado para processamento.'
-                                : 'Sem transcrição'}
-                          </p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className={ui.text.strong}>
+                                {getPendingPrimaryText(entry)}
+                              </p>
 
-                          <p className={`mt-2 ${ui.text.subtle}`}>
-                            {entry.source === 'manual' ? 'Manual' : 'Voz'} •{' '}
-                            {getProcessingLabel(entry.processing_status)}
-                          </p>
+                              <div className="mt-2 space-y-1">
+                                {getPendingMetaLines(entry).map((line) => (
+                                  <p key={line} className={ui.text.subtle}>
+                                    {line}
+                                  </p>
+                                ))}
+                                <p className={ui.text.subtle}>
+                                  Status: {getProcessingLabel(entry.processing_status)}
+                                </p>
+                              </div>
+                            </div>
 
-                          <Link
-                            href={`/revisar/${entry.id}`}
-                            className={`mt-3 ${ui.button.neutral}`}
-                          >
-                            {getPendingActionLabel(entry.processing_status)}
-                          </Link>
+                            <form action={quickDiscardPendingEntry}>
+                              <input type="hidden" name="id" value={entry.id} />
+                              <DeleteEntryButton
+                                label="Descartar lançamento pendente"
+                                title="Descartar lançamento pendente"
+                                confirmMessage="Descartar este lançamento pendente?"
+                              />
+                            </form>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -734,48 +864,66 @@ export default async function PainelPage({
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <p className={ui.text.strong}>
                                   {entry.description ?? 'Sem descrição'}
                                 </p>
-                                <p className={`mt-1 ${ui.text.subtle}`}>
-                                  {entry.counterparty_name ?? 'Sem nome'} •{' '}
-                                  {formatCurrency(entry.amount ?? 0)}
-                                </p>
-                                <p className={`mt-1 ${ui.text.subtle}`}>
-                                  {entry.due_on ? `Vence ${entry.due_on}` : 'Sem vencimento'}
-                                </p>
+
+                                <div className="mt-2 space-y-1">
+                                  <p className={ui.text.subtle}>
+                                    Tipo: {getEntryTypeLabel(entry.entry_type)}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Valor: {formatOptionalCurrency(entry.amount)}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Vencimento: {entry.due_on ?? '-'}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Contraparte: {entry.counterparty_name ?? '-'}
+                                  </p>
+                                </div>
+
+                                <div className="mt-2">
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
+                                      urgency.tone
+                                    )}`}
+                                  >
+                                    {urgency.label}
+                                  </span>
+                                </div>
                               </div>
 
-                              <span
-                                className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
-                                  urgency.tone
-                                )}`}
-                              >
-                                {urgency.label}
-                              </span>
-                            </div>
+                              <div className="flex shrink-0 items-center gap-2 self-start">
+                                <ActionIconLink
+                                  href={`/liquidar/${entry.id}`}
+                                  label={getOpenAccountReviewLabel('receivable')}
+                                >
+                                  <SettleIcon />
+                                </ActionIconLink>
 
-                            <div className="mt-3 flex items-center gap-2">
-                              <Link
-                                href={`/liquidar/${entry.id}`}
-                                className={ui.button.neutral}
-                              >
-                                {getOpenAccountReviewLabel()}
-                              </Link>
+                                {canQuickSettleOpenAccount({
+                                  ...entry,
+                                  entry_type: 'sale_due',
+                                }) && (
+                                  <form action={quickSettleOpenAccount}>
+                                    <input type="hidden" name="id" value={entry.id} />
+                                    <QuickConfirmPendingButton
+                                      idleLabel="Confirmar recebimento"
+                                      armedLabel="Toque de novo para confirmar recebimento"
+                                    />
+                                  </form>
+                                )}
 
-                              {canQuickSettleOpenAccount({
-                                ...entry,
-                                entry_type: 'sale_due',
-                              }) && (
-                                <form action={quickSettleOpenAccount}>
+                                <form action={quickDeleteOpenAccountEntry}>
                                   <input type="hidden" name="id" value={entry.id} />
-                                  <QuickConfirmPendingButton
-                                    idleLabel="Confirmar recebimento"
-                                    armedLabel="Toque de novo para confirmar recebimento"
+                                  <DeleteEntryButton
+                                    label="Excluir conta a receber"
+                                    title="Excluir conta a receber"
                                   />
                                 </form>
-                              )}
+                              </div>
                             </div>
                           </li>
                         )
@@ -802,48 +950,66 @@ export default async function PainelPage({
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <p className={ui.text.strong}>
                                   {entry.description ?? 'Sem descrição'}
                                 </p>
-                                <p className={`mt-1 ${ui.text.subtle}`}>
-                                  {entry.counterparty_name ?? 'Sem nome'} •{' '}
-                                  {formatCurrency(entry.amount ?? 0)}
-                                </p>
-                                <p className={`mt-1 ${ui.text.subtle}`}>
-                                  {entry.due_on ? `Vence ${entry.due_on}` : 'Sem vencimento'}
-                                </p>
+
+                                <div className="mt-2 space-y-1">
+                                  <p className={ui.text.subtle}>
+                                    Tipo: {getEntryTypeLabel(entry.entry_type)}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Valor: {formatOptionalCurrency(entry.amount)}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Vencimento: {entry.due_on ?? '-'}
+                                  </p>
+                                  <p className={ui.text.subtle}>
+                                    Contraparte: {entry.counterparty_name ?? '-'}
+                                  </p>
+                                </div>
+
+                                <div className="mt-2">
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
+                                      urgency.tone
+                                    )}`}
+                                  >
+                                    {urgency.label}
+                                  </span>
+                                </div>
                               </div>
 
-                              <span
-                                className={`rounded-full border px-3 py-1 text-xs font-medium ${getUrgencyBadgeClass(
-                                  urgency.tone
-                                )}`}
-                              >
-                                {urgency.label}
-                              </span>
-                            </div>
+                              <div className="flex shrink-0 items-center gap-2 self-start">
+                                <ActionIconLink
+                                  href={`/liquidar/${entry.id}`}
+                                  label={getOpenAccountReviewLabel('payable')}
+                                >
+                                  <SettleIcon />
+                                </ActionIconLink>
 
-                            <div className="mt-3 flex items-center gap-2">
-                              <Link
-                                href={`/liquidar/${entry.id}`}
-                                className={ui.button.neutral}
-                              >
-                                {getOpenAccountReviewLabel()}
-                              </Link>
+                                {canQuickSettleOpenAccount({
+                                  ...entry,
+                                  entry_type: 'expense_due',
+                                }) && (
+                                  <form action={quickSettleOpenAccount}>
+                                    <input type="hidden" name="id" value={entry.id} />
+                                    <QuickConfirmPendingButton
+                                      idleLabel="Confirmar pagamento"
+                                      armedLabel="Toque de novo para confirmar pagamento"
+                                    />
+                                  </form>
+                                )}
 
-                              {canQuickSettleOpenAccount({
-                                ...entry,
-                                entry_type: 'expense_due',
-                              }) && (
-                                <form action={quickSettleOpenAccount}>
+                                <form action={quickDeleteOpenAccountEntry}>
                                   <input type="hidden" name="id" value={entry.id} />
-                                  <QuickConfirmPendingButton
-                                    idleLabel="Confirmar pagamento"
-                                    armedLabel="Toque de novo para confirmar pagamento"
+                                  <DeleteEntryButton
+                                    label="Excluir conta a pagar"
+                                    title="Excluir conta a pagar"
                                   />
                                 </form>
-                              )}
+                              </div>
                             </div>
                           </li>
                         )
@@ -853,8 +1019,6 @@ export default async function PainelPage({
                 )}
               </div>
             </DashboardCollapsibleCard>
-
-            <InstallAppCard />
           </>
         )}
 

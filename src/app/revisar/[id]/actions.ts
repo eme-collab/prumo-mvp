@@ -12,6 +12,7 @@ import { trackAppEventServer } from '@/lib/app-events-server'
 import {
   getOpenAccountItemType,
   getOpenAccountUrgencyStatus,
+  isPendingReviewActionable,
   isOpenAccount,
 } from '@/lib/pending-state'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
@@ -88,7 +89,7 @@ function getEditSettlementFields(input: {
   }
 }
 
-async function getNextPendingEntryId(currentId: string) {
+async function getNextPendingEntryMeta(currentId: string) {
   const supabase = await createClient()
 
   const {
@@ -96,24 +97,35 @@ async function getNextPendingEntryId(currentId: string) {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return null
+    return {
+      nextActionableEntryId: null,
+      pendingCount: 0,
+    }
   }
 
   const { data, error } = await supabase
     .from('financial_entries')
-    .select('id')
+    .select('id, created_at, processing_status, review_status')
     .eq('user_id', user.id)
     .eq('review_status', 'pending')
     .neq('id', currentId)
     .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+    .limit(50)
 
   if (error) {
     throw new Error(error.message)
   }
 
-  return data?.id ?? null
+  const pendingEntries = data ?? []
+  const nextActionableEntry =
+    pendingEntries.find((entry) =>
+      isPendingReviewActionable(entry.processing_status)
+    ) ?? null
+
+  return {
+    nextActionableEntryId: nextActionableEntry?.id ?? null,
+    pendingCount: pendingEntries.length,
+  }
 }
 
 async function redirectToNextPendingOrPanel(input: {
@@ -122,11 +134,13 @@ async function redirectToNextPendingOrPanel(input: {
   undo?: GlobalToastUndo
   entryId?: string
 }) {
-  const nextId = await getNextPendingEntryId(input.currentId)
+  const { nextActionableEntryId, pendingCount } = await getNextPendingEntryMeta(
+    input.currentId
+  )
 
-  if (nextId) {
+  if (nextActionableEntryId) {
     redirect(
-      buildToastHref(`/revisar/${nextId}`, {
+      buildToastHref(`/revisar/${nextActionableEntryId}`, {
         kind: input.toastKind,
         undo: input.undo,
         entryId: input.entryId,
@@ -135,11 +149,14 @@ async function redirectToNextPendingOrPanel(input: {
   }
 
   redirect(
-    buildToastHref('/painel', {
-      kind: input.toastKind,
-      undo: input.undo,
-      entryId: input.entryId,
-    })
+    buildToastHref(
+      pendingCount > 0 ? '/painel?focus=pending_review' : '/painel',
+      {
+        kind: input.toastKind,
+        undo: input.undo,
+        entryId: input.entryId,
+      }
+    )
   )
 }
 
@@ -174,7 +191,7 @@ export async function submitReview(formData: FormData) {
 
   const { data: currentEntry, error: currentEntryError } = await supabase
     .from('financial_entries')
-    .select('id, user_id, source')
+    .select('id, user_id, source, review_status, processing_status')
     .eq('id', id)
     .maybeSingle()
 
@@ -184,6 +201,14 @@ export async function submitReview(formData: FormData) {
 
   if (!currentEntry || currentEntry.user_id !== user.id) {
     redirect('/painel')
+  }
+
+  if (currentEntry.review_status !== 'pending') {
+    redirect('/painel')
+  }
+
+  if (!isPendingReviewActionable(currentEntry.processing_status)) {
+    redirect(`/revisar/${id}`)
   }
 
   const transcript = getNullableString(formData, 'transcript')

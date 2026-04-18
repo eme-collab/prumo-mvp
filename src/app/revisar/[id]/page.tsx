@@ -2,7 +2,10 @@ import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import AppEventViewTracker from '@/components/app-event-view-tracker'
+import AppShellHeader from '@/components/app-shell-header'
 import FinancialEntryForm from '@/components/financial-entry-form'
+import { getNotificationUsefulItemsState } from '@/lib/notification-menu-state'
+import { isPendingReviewActionable } from '@/lib/pending-state'
 import { createClient } from '@/lib/supabase/server'
 import ReprocessEntryButton from '@/components/reprocess-entry-button'
 import { sanitizeResumoReturnTo } from '@/lib/resumo-navigation'
@@ -34,15 +37,58 @@ function getErrorMessage(error?: string) {
 function getProcessingMessage(processingStatus?: string) {
   switch (processingStatus) {
     case 'uploaded':
-      return 'Áudio enviado. O processamento vai começar.'
+      return 'Seu áudio foi enviado e vai começar a ser processado.'
     case 'transcribing':
-      return 'Transcrição em andamento.'
+      return 'Seu áudio está sendo transcrito.'
     case 'parsing':
-      return 'Interpretação em andamento.'
+      return 'Seu áudio está sendo interpretado.'
     case 'failed':
       return 'O processamento falhou. Você ainda pode revisar pelo áudio.'
     default:
       return ''
+  }
+}
+
+function getQueueTransitionContent(
+  toastKind: string | undefined,
+  remainingActionableCount: number,
+  remainingProcessingCount: number
+) {
+  if (
+    toastKind !== 'entry_confirmed' &&
+    toastKind !== 'entry_discarded' &&
+    toastKind !== 'entry_saved'
+  ) {
+    return null
+  }
+
+  const lead =
+    toastKind === 'entry_discarded'
+      ? 'O lançamento anterior foi descartado. Este é o próximo da fila.'
+      : toastKind === 'entry_confirmed'
+        ? 'O lançamento anterior foi confirmado. Este é o próximo da fila.'
+        : 'Este é o próximo lançamento da fila.'
+
+  const detailParts: string[] = []
+
+  if (remainingActionableCount > 0) {
+    detailParts.push(
+      `Depois dele, ainda restam ${remainingActionableCount} para revisar.`
+    )
+  }
+
+  if (remainingProcessingCount > 0) {
+    detailParts.push(
+      `${remainingProcessingCount} ainda ${
+        remainingProcessingCount === 1 ? 'está' : 'estão'
+      } em processamento.`
+    )
+  }
+
+  return {
+    title: 'Próximo lançamento',
+    lead,
+    detail: detailParts.join(' '),
   }
 }
 
@@ -85,10 +131,15 @@ export default async function RevisarEntryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ error?: string; mode?: string; returnTo?: string }>
+  searchParams: Promise<{
+    error?: string
+    mode?: string
+    returnTo?: string
+    toast?: string
+  }>
 }) {
   const { id } = await params
-  const { error, mode, returnTo } = await searchParams
+  const { error, mode, returnTo, toast } = await searchParams
 
   const supabase = await createClient()
 
@@ -103,9 +154,10 @@ export default async function RevisarEntryPage({
   const { data: entry, error: entryError } = await supabase
     .from('financial_entries')
     .select(
-      'id, source, audio_path, review_status, processing_status, processing_error, entry_type, description, counterparty_name, amount, occurred_on, due_on, transcript, created_at, settlement_status, settled_on, settled_amount'
+      'id, user_id, source, audio_path, review_status, processing_status, processing_error, entry_type, description, counterparty_name, amount, occurred_on, due_on, transcript, created_at, settlement_status, settled_on, settled_amount'
     )
     .eq('id', id)
+    .eq('user_id', user.id)
     .maybeSingle()
 
   if (entryError) {
@@ -124,6 +176,7 @@ export default async function RevisarEntryPage({
     userId: user.id,
     cookieStore,
   })
+  const usefulItems = await getNotificationUsefulItemsState(supabase, user.id)
   const shouldTrackFirstReviewView =
     !isEditMode &&
     entry.source === 'voice' &&
@@ -132,6 +185,40 @@ export default async function RevisarEntryPage({
 
   if (isEditMode && entry.review_status !== 'confirmed') {
     redirect(`/revisar/${id}`)
+  }
+
+  const isPendingReviewEntry = entry.review_status === 'pending'
+  const isReviewActionable =
+    !isEditMode && isPendingReviewEntry
+      ? isPendingReviewActionable(entry.processing_status)
+      : true
+  const isStillProcessing = !isEditMode && isPendingReviewEntry && !isReviewActionable
+
+  let remainingActionableCount = 0
+  let remainingProcessingCount = 0
+
+  if (!isEditMode && isPendingReviewEntry) {
+    const { data: otherPendingEntries, error: otherPendingEntriesError } =
+      await supabase
+        .from('financial_entries')
+        .select('id, created_at, processing_status')
+        .eq('user_id', user.id)
+        .eq('review_status', 'pending')
+        .neq('id', id)
+        .order('created_at', { ascending: true })
+        .limit(50)
+
+    if (otherPendingEntriesError) {
+      throw new Error(otherPendingEntriesError.message)
+    }
+
+    remainingActionableCount = (otherPendingEntries ?? []).filter((pendingEntry) =>
+      isPendingReviewActionable(pendingEntry.processing_status)
+    ).length
+    remainingProcessingCount = (otherPendingEntries ?? []).filter(
+      (pendingEntry) =>
+        !isPendingReviewActionable(pendingEntry.processing_status)
+    ).length
   }
 
   let signedAudioUrl: string | null = null
@@ -149,10 +236,21 @@ export default async function RevisarEntryPage({
   const resolveErrorMessage = getErrorMessage(error)
   const processingMessage = getProcessingMessage(entry.processing_status)
   const errorMessage = resolveErrorMessage(entry.entry_type)
-  const title = isEditMode ? 'Editar movimentação' : 'Revisar lançamento'
+  const queueTransitionContent = getQueueTransitionContent(
+    toast,
+    remainingActionableCount,
+    remainingProcessingCount
+  )
+  const title = isEditMode
+    ? 'Editar movimentação'
+    : isStillProcessing
+      ? 'Lançamento em processamento'
+      : 'Revisar lançamento'
   const introMessage = isEditMode
     ? 'Ajuste os dados desta movimentação confirmada.'
-    : 'Confira os dados. Se precisar, ajuste antes de confirmar.'
+    : isStillProcessing
+      ? 'Este lançamento ainda não está pronto para revisão.'
+      : 'Confira os dados. Se precisar, ajuste antes de confirmar.'
   const backHref = isEditMode ? safeReturnTo : '/painel'
   const backLabel = isEditMode ? 'Voltar para o resumo' : 'Voltar para o painel'
   const formAction = isEditMode ? submitEntryEdit : submitReview
@@ -175,22 +273,60 @@ export default async function RevisarEntryPage({
       />
 
       <div className={ui.page.containerNarrow}>
-        <div className={ui.card.base}>
-          <Link href={backHref} className="text-sm underline">
-            {backLabel}
-          </Link>
+        <AppShellHeader
+          userId={user.id}
+          hasCompletedFirstCapture={firstCaptureState.hasCompletedFirstCapture}
+          isZenMode={!firstCaptureState.hasCompletedFirstCapture}
+          usefulItems={usefulItems}
+          actionHref={backHref}
+          actionLabel={isEditMode ? 'Resumo' : 'Painel'}
+        />
 
-          <h1 className={`mt-4 ${ui.text.pageTitle}`}>{title}</h1>
+        <div className={ui.card.base}>
+          <h1 className={ui.text.pageTitle}>{title}</h1>
           <p className={`mt-2 ${ui.text.muted}`}>
             {introMessage}
           </p>
         </div>
+
+        {!isEditMode && queueTransitionContent && isReviewActionable && (
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
+              {queueTransitionContent.title}
+            </p>
+            <p className="mt-1 text-sm font-medium text-sky-900">
+              {queueTransitionContent.lead}
+            </p>
+            {queueTransitionContent.detail && (
+              <p className="mt-1 text-sm text-sky-800">
+                {queueTransitionContent.detail}
+              </p>
+            )}
+          </div>
+        )}
 
         {!isEditMode && processingMessage && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-medium text-amber-800">
               {processingMessage}
             </p>
+            {isStillProcessing && (
+              <>
+                <p className="mt-2 text-sm text-amber-800">
+                  Você pode voltar ao painel e gravar o próximo. Quando ficar
+                  pronto, ele entra em pendentes para revisão.
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link href="/painel" className={ui.button.secondary}>
+                    Voltar ao painel
+                  </Link>
+                  <Link href={`/revisar/${id}`} className={ui.button.neutral}>
+                    Atualizar status
+                  </Link>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -243,14 +379,26 @@ export default async function RevisarEntryPage({
             </p>
           </div>
 
-          <FinancialEntryForm
-            action={formAction}
-            entry={entry}
-            mode={isEditMode ? 'edit' : 'review'}
-            cancelHref={backHref}
-            returnTo={isEditMode ? safeReturnTo : undefined}
-            showSettlementFields={showSettlementFields}
-          />
+          {isReviewActionable ? (
+            <FinancialEntryForm
+              action={formAction}
+              entry={entry}
+              mode={isEditMode ? 'edit' : 'review'}
+              cancelHref={backHref}
+              returnTo={isEditMode ? safeReturnTo : undefined}
+              showSettlementFields={showSettlementFields}
+            />
+          ) : (
+            <div className={ui.card.inner}>
+              <p className={ui.text.body}>
+                A revisão fica disponível assim que o processamento terminar.
+              </p>
+              <p className={`mt-1 ${ui.text.subtle}`}>
+                Enquanto isso, você pode seguir usando o app sem perder este
+                lançamento.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="rounded-2xl border p-6">
